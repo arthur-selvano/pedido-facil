@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { query } from "../../../../lib/db.js";
+import { query } from "../../../../lib/db";
 
 export async function POST(request) {
   try {
     const { name, email, password } = await request.json();
 
-    if (!name || !email || !password || !password.length < 6) {
+    if (!name || !email || !password || password.length < 6) {
       return NextResponse.json(
         {
           error:
