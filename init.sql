@@ -1,0 +1,30 @@
+-- Usuários donos das lojas
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(150) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Lojas (cada loja funciona de forma isolada pelo id e slug)
+CREATE TABLE stores (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    delivery_fee NUMERIC(10, 2) DEFAULT 0.00,
+    is_open_manual BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Horários de funcionamento (0 = Domingo até 6 = Sábado)
+CREATE TABLE store_hours (
+    id SERIAL PRIMARY KEY,
+    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+    open_time TIME NOT NULL,
+    close_time TIME NOT NULL,
+    is_closed BOOLEAN DEFAULT FALSE
+);
