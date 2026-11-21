@@ -83,10 +83,17 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
         <div className="w-full max-w-lg bg-white rounded-2xl shadow-md p-8">
-          <h1 className="text-3xl font-black text-gray-800 mb-2">
+          <a href="#" className="flex justify-center items-center mb-4">
+            <img
+              src="/logo.png"
+              alt="Logo Pedido Fácil"
+              className="h-25 w-auto object-contain"
+            />
+          </a>
+          <h1 className="text-3xl font-black text-gray-800 text-center mb-2">
             Configure sua Loja
           </h1>
-          <p className="text-sm text-gray-500 mb-6">
+          <p className="text-sm text-gray-500 text-center mb-6">
             Preencha os dados básicos para gerar o link do seu cardápio digital.
           </p>
 
@@ -174,10 +181,17 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-800">{store.name}</h1>
-            <p className="text-sm text-gray-500">Painel Administrativo</p>
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="Logo Pedido Fácil"
+              className="h-25 w-auto object-contain"
+            />
+            <div>
+              <h1 className="text-xl font-bold text-gray-800">{store.name}</h1>
+              <p className="text-sm text-gray-500">Painel Administrativo</p>
+            </div>
           </div>
 
           <Link
@@ -191,7 +205,7 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">
             Resumo da Loja
           </h2>
@@ -213,6 +227,23 @@ export default function DashboardPage() {
               </strong>
             </div>
           </div>
+        </div>
+        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Cardápio Digital
+            </h2>
+            <p className="text-sm text-gray-500">
+              Crie categorias e adicione os itens disponíveis na sua loja.
+            </p>
+          </div>
+
+          <Link
+            href="/dashboard/menu"
+            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition"
+          >
+            Gerenciar Cardápio
+          </Link>
         </div>
       </main>
     </div>
