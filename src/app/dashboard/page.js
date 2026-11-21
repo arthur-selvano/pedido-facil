@@ -228,7 +228,26 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200 flex items-center justify-between">
+
+        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Pedidos e Cozinha
+            </h2>
+            <p className="text-sm text-gray-500">
+              Acompanhe os pedidos em tempo real e atualize o andamento da fila.
+            </p>
+          </div>
+
+          <Link
+            href="/dashboard/orders"
+            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition shrink-0"
+          >
+            Abrir Pedidos
+          </Link>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200 flex items-center justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">
               Cardápio Digital
@@ -240,7 +259,7 @@ export default function DashboardPage() {
 
           <Link
             href="/dashboard/menu"
-            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition"
+            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition shrink-0"
           >
             Gerenciar Cardápio
           </Link>
