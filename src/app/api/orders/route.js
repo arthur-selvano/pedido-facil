@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { verifyToken } from "@/lib/auth";
 
 export async function POST(request) {
   try {
@@ -146,6 +147,61 @@ export async function POST(request) {
     );
   } catch (error) {
     console.error("Erro ao registrar pedido:", error);
+    return NextResponse.json(
+      { error: "Erro interno no servidor." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function GET(request) {
+  try {
+    const token = request.cookies.get("token")?.value;
+    const decoded = verifyToken(token);
+
+    if (!decoded) {
+      return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+    }
+
+    const result = await query("SELECT id FROM stores WHERE user_id = $1", [
+      decoded.userId,
+    ]);
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { error: "Loja não encontrada!" },
+        { status: 404 },
+      );
+    }
+
+    const store = result.rows[0];
+
+    const fetchOrders = await query(
+      "SELECT * FROM orders WHERE store_id = $1 ORDER BY created_at DESC",
+      [store.id],
+    );
+
+    const orders = fetchOrders.rows;
+
+    if (orders.length === 0) {
+      return NextResponse.json({ orders: [] });
+    }
+
+    const ordersIds = orders.map((order) => order.id);
+
+    const itemResult = await query(
+      "SELECT * FROM order_items WHERE order_id = ANY($1::int[])",
+      [ordersIds],
+    );
+
+    const ordersWithItems = orders.map((order) => ({
+      ...order,
+      items: itemResult.rows.filter((item) => item.order_id === order.id),
+    }));
+
+    return NextResponse.json({ orders: ordersWithItems });
+  } catch (error) {
+    console.error("Erro ao listar pedidos:", error);
     return NextResponse.json(
       { error: "Erro interno no servidor." },
       { status: 500 },
