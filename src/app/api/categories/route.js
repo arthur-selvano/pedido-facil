@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { decode } from "jsonwebtoken";
 
 export async function GET(request) {
   try {
