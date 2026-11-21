@@ -51,3 +51,32 @@ CREATE TABLE IF NOT EXISTS products (
   available BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Pedidos
+
+CREATE TABLE IF NOT EXISTS orders (
+  id SERIAL PRIMARY KEY,
+  store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  customer_name VARCHAR(150) NOT NULL,
+  customer_phone VARCHAR(30) NOT NULL,
+  delivery_type VARCHAR(20) NOT NULL DEFAULT 'delivery',
+  address TEXT,
+  payment_method VARCHAR(50) NOT NULL,
+  notes TEXT,
+  subtotal NUMERIC(10, 2) NOT NULL,
+  delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  total NUMERIC(10, 2) NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Pedido de itens
+
+CREATE TABLE IF NOT EXISTS order_items (
+  id SERIAL PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  product_name VARCHAR(150) NOT NULL,
+  unit_price NUMERIC(10, 2) NOT NULL,
+  quantity INTEGER NOT NULL
+);
