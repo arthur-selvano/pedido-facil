@@ -97,3 +97,49 @@ export async function GET(request) {
     );
   }
 }
+
+export async function PATCH(request) {
+  try {
+    const token = request.cookies.get("token")?.value;
+    const decoded = verifyToken(token);
+
+    if (!decoded) {
+      return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+    }
+
+    const { is_open } = await request.json();
+
+    if (typeof is_open !== "boolean") {
+      return NextResponse.json(
+        { error: "O status da loja deve ser verdadeiro ou falso." },
+        { status: 400 },
+      );
+    }
+
+    const result = await query(
+      `UPDATE stores
+       SET is_open = $1
+       WHERE user_id = $2
+       RETURNING *`,
+      [is_open, decoded.userId],
+    );
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { error: "Loja não encontrada." },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({
+      message: is_open ? "Loja aberta!" : "Loja fechada!",
+      store: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Erro ao atualizar status da loja:", error);
+    return NextResponse.json(
+      { error: "Erro interno no servidor." },
+      { status: 500 },
+    );
+  }
+}

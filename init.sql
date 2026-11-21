@@ -80,3 +80,8 @@ CREATE TABLE IF NOT EXISTS order_items (
   unit_price NUMERIC(10, 2) NOT NULL,
   quantity INTEGER NOT NULL
 );
+
+-- Colocando se a loja está fechada ou aberta
+
+ALTER TABLE stores
+ADD COLUMN is_open BOOLEAN NOT NULL DEFAULT TRUE;

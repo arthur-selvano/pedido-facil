@@ -17,6 +17,8 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  const [togglingStore, setTogglingStore] = useState(false);
+
   useEffect(() => {
     async function loadStore() {
       try {
@@ -68,6 +70,29 @@ export default function DashboardPage() {
     } catch (err) {
       setError("Erro de conexão com o servidor.");
       setSubmitting(false);
+    }
+  }
+
+  async function handleToggleStore() {
+    setTogglingStore(true);
+    try {
+      const response = await fetch("/api/stores", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_open: !store.is_open }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setStore(data.store);
+      } else {
+        alert(data.error || "Erro ao alterar status da loja.");
+      }
+    } catch (err) {
+      alert("Erro de conexão com o servidor.");
+    } finally {
+      setTogglingStore(false);
     }
   }
 
@@ -192,6 +217,32 @@ export default function DashboardPage() {
               <h1 className="text-xl font-bold text-gray-800">{store.name}</h1>
               <p className="text-sm text-gray-500">Painel Administrativo</p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleToggleStore}
+              disabled={togglingStore}
+              className={`px-4 py-2 text-sm font-bold rounded-xl border transition cursor-pointer disabled:opacity-50 ${
+                store.is_open
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                  : "bg-red-50 text-red-700 border-red-300 hover:bg-red-100"
+              }`}
+            >
+              {togglingStore
+                ? "Atualizando..."
+                : store.is_open
+                  ? "Loja Aberta"
+                  : "Loja Fechada"}
+            </button>
+
+            <Link
+              href={`/${store.slug}`}
+              target="_blank"
+              className="px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition"
+            >
+              Ver Cardápio Público
+            </Link>
           </div>
 
           <Link
