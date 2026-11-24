@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { signToken } from "@/lib/auth";
 
 export async function POST(request) {
@@ -14,19 +14,22 @@ export async function POST(request) {
       );
     }
 
-    const fetchUser = await query(
-      "SELECT id, name, email, password_hash FROM users WHERE email = $1",
-      [email.toLowerCase()],
-    );
+    const user = await prisma.users.findUnique({
+      where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password_hash: true,
+      },
+    });
 
-    if (fetchUser.rows.length === 0) {
+    if (!user) {
       return NextResponse.json(
         { error: "E-mail ou senha inválidos." },
         { status: 401 },
       );
     }
-
-    const user = fetchUser.rows[0];
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/auth";
 
 export async function POST(request) {
@@ -44,34 +44,38 @@ export async function POST(request) {
       );
     }
 
-    const storeResult = await query(
-      "SELECT id, delivery_fee FROM stores WHERE id = $1",
-      [store_id],
-    );
+    const store = await prisma.stores.findUnique({
+      where: { id: Number(store_id) },
+      select: { id: true, delivery_fee: true },
+    });
 
-    if (storeResult.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada." },
         { status: 404 },
       );
     }
 
-    const store = storeResult.rows[0];
-
     const productIds = items.map((item) => Number(item.product_id));
 
-    const productsResult = await query(
-      `SELECT id, name, price
-       FROM products
-       WHERE store_id = $1 AND available = TRUE AND id = ANY($2::int[])`,
-      [store.id, productIds],
-    );
+    const dbProducts = await prisma.products.findMany({
+      where: {
+        store_id: store.id,
+        available: true,
+        id: { in: productIds },
+      },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+      },
+    });
 
     let subtotal = 0;
     const validatedItems = [];
 
     for (const item of items) {
-      const dbProduct = productsResult.rows.find(
+      const dbProduct = dbProducts.find(
         (p) => p.id === Number(item.product_id),
       );
       const quantity = Number(item.quantity);
@@ -98,45 +102,26 @@ export async function POST(request) {
     }
 
     const deliveryFee =
-      finalDeliveryType === "delivery" ? Number(store.delivery_fee) : 0;
+      finalDeliveryType === "delivery" ? Number(store.delivery_fee || 0) : 0;
     const total = subtotal + deliveryFee;
 
-    const orderResult = await query(
-      `INSERT INTO orders (
-        store_id, customer_name, customer_phone, delivery_type,
-        address, payment_method, notes, subtotal, delivery_fee, total
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *`,
-      [
-        store.id,
-        customer_name.trim(),
-        customer_phone.trim(),
-        finalDeliveryType,
-        finalDeliveryType === "delivery" ? address.trim() : null,
+    const createdOrder = await prisma.orders.create({
+      data: {
+        store_id: store.id,
+        customer_name: customer_name.trim(),
+        customer_phone: customer_phone.trim(),
+        delivery_type: finalDeliveryType,
+        address: finalDeliveryType === "delivery" ? address.trim() : null,
         payment_method,
-        notes ? notes.trim() : null,
+        notes: notes ? notes.trim() : null,
         subtotal,
-        deliveryFee,
+        delivery_fee: deliveryFee,
         total,
-      ],
-    );
-
-    const createdOrder = orderResult.rows[0];
-
-    for (const item of validatedItems) {
-      await query(
-        `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          createdOrder.id,
-          item.product_id,
-          item.product_name,
-          item.unit_price,
-          item.quantity,
-        ],
-      );
-    }
+        order_items: {
+          create: validatedItems,
+        },
+      },
+    });
 
     return NextResponse.json(
       {
@@ -163,40 +148,29 @@ export async function GET(request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const result = await query("SELECT id FROM stores WHERE user_id = $1", [
-      decoded.userId,
-    ]);
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada!" },
         { status: 404 },
       );
     }
 
-    const store = result.rows[0];
+    const orders = await prisma.orders.findMany({
+      where: { store_id: store.id },
+      orderBy: { created_at: "desc" },
+      include: {
+        order_items: true,
+      },
+    });
 
-    const fetchOrders = await query(
-      "SELECT * FROM orders WHERE store_id = $1 ORDER BY created_at DESC",
-      [store.id],
-    );
-
-    const orders = fetchOrders.rows;
-
-    if (orders.length === 0) {
-      return NextResponse.json({ orders: [] });
-    }
-
-    const ordersIds = orders.map((order) => order.id);
-
-    const itemResult = await query(
-      "SELECT * FROM order_items WHERE order_id = ANY($1::int[])",
-      [ordersIds],
-    );
-
-    const ordersWithItems = orders.map((order) => ({
+    const ordersWithItems = orders.map(({ order_items, ...order }) => ({
       ...order,
-      items: itemResult.rows.filter((item) => item.order_id === order.id),
+      items: order_items,
     }));
 
     return NextResponse.json({ orders: ordersWithItems });

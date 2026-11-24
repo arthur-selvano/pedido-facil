@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
-import { query } from "@/lib/db";
-import { decode } from "jsonwebtoken";
+import { prisma } from "@/lib/db";
 
 export async function POST(request) {
   try {
@@ -21,12 +20,12 @@ export async function POST(request) {
       );
     }
 
-    const userHasStore = await query(
-      "SELECT id FROM stores WHERE user_id = $1",
-      [decoded.userId],
-    );
+    const userHasStore = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (userHasStore.rows.length > 0) {
+    if (userHasStore) {
       return NextResponse.json(
         { error: "Você já possui uma loja cadastrada." },
         { status: 400 },
@@ -35,34 +34,32 @@ export async function POST(request) {
 
     const cleanSlug = slug.toLowerCase().trim();
 
-    const storeExists = await query("SELECT id FROM stores WHERE slug = $1", [
-      cleanSlug,
-    ]);
+    const storeExists = await prisma.stores.findUnique({
+      where: { slug: cleanSlug },
+      select: { id: true },
+    });
 
-    if (storeExists.rows.length > 0) {
+    if (storeExists) {
       return NextResponse.json(
         { error: "Este link de loja já está em uso." },
         { status: 409 },
       );
     }
 
-    const saveStore = await query(
-      `INSERT INTO stores (user_id, name, slug, phone, delivery_fee)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [
-        decoded.userId,
-        name.trim(),
-        cleanSlug,
-        phone || null,
-        delivery_fee || 0,
-      ],
-    );
+    const saveStore = await prisma.stores.create({
+      data: {
+        user_id: decoded.userId,
+        name: name.trim(),
+        slug: cleanSlug,
+        phone: phone || null,
+        delivery_fee: delivery_fee ? Number(delivery_fee) : 0,
+      },
+    });
 
     return NextResponse.json(
       {
         message: "Loja criada com sucesso!",
-        store: saveStore.rows[0],
+        store: saveStore,
       },
       { status: 201 },
     );
@@ -80,19 +77,19 @@ export async function GET(request) {
     const token = request.cookies.get("token")?.value;
     const decoded = verifyToken(token);
 
-    if (!decode) {
+    if (!decoded) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const result = await query("SELECT * FROM stores WHERE user_id = $1", [
-      decoded.userId,
-    ]);
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+    });
 
-    return NextResponse.json({ store: result.rows[0] || null });
+    return NextResponse.json({ store: store || null });
   } catch (error) {
     console.error("Erro ao buscar loja:", error);
     return NextResponse.json(
-      { error: "Erro interno no servidor. " },
+      { error: "Erro interno no servidor." },
       { status: 500 },
     );
   }
@@ -116,24 +113,26 @@ export async function PATCH(request) {
       );
     }
 
-    const result = await query(
-      `UPDATE stores
-       SET is_open = $1
-       WHERE user_id = $2
-       RETURNING *`,
-      [is_open, decoded.userId],
-    );
+    const existingStore = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!existingStore) {
       return NextResponse.json(
         { error: "Loja não encontrada." },
         { status: 404 },
       );
     }
 
+    const updatedStore = await prisma.stores.update({
+      where: { id: existingStore.id },
+      data: { is_open },
+    });
+
     return NextResponse.json({
       message: is_open ? "Loja aberta!" : "Loja fechada!",
-      store: result.rows[0],
+      store: updatedStore,
     });
   } catch (error) {
     console.error("Erro ao atualizar status da loja:", error);

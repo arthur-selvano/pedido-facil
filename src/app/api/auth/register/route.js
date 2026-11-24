@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { query } from "../../../../lib/db";
+import { prisma } from "../../../../lib/db";
 
 export async function POST(request) {
   try {
@@ -16,11 +16,14 @@ export async function POST(request) {
       );
     }
 
-    const existingUser = await query("SELECT id FROM users WHERE email = $1", [
-      email.toLowerCase(),
-    ]);
+    const normalizedEmail = email.toLowerCase();
 
-    if (existingUser.rows.length > 0) {
+    const existingUser = await prisma.users.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+
+    if (existingUser) {
       return NextResponse.json(
         { error: "Já existe alguem com esse e-mail." },
         { status: 409 },
@@ -29,15 +32,23 @@ export async function POST(request) {
 
     const hash = await bcrypt.hash(password, 10);
 
-    const createUser = await query(
-      "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email",
-      [name, email.toLowerCase(), hash],
-    );
+    const createUser = await prisma.users.create({
+      data: {
+        name,
+        email: normalizedEmail,
+        password_hash: hash,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+    });
 
     return NextResponse.json(
       {
         message: "Usuário cadastrado com sucesso!",
-        user: createUser.rows[0],
+        user: createUser,
       },
       { status: 201 },
     );

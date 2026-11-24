@@ -1,5 +1,5 @@
 import { verifyToken } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 export async function PATCH(request, { params }) {
@@ -12,18 +12,17 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const result = await query("SELECT id FROM stores WHERE user_id = $1", [
-      decoded.userId,
-    ]);
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada!" },
         { status: 404 },
       );
     }
-
-    const store = result.rows[0];
 
     const { status } = await request.json();
 
@@ -47,26 +46,26 @@ export async function PATCH(request, { params }) {
       );
     }
 
-    const updateResult = await query(
-      `UPDATE orders
-       SET status = $1
-       WHERE id = $2 AND store_id = $3
-       RETURNING *`,
-      [status, orderId, store.id],
-    );
+    const updatedOrder = await prisma.orders.update({
+      where: {
+        id: orderId,
+        store_id: store.id,
+      },
+      data: { status },
+    });
 
-    if (updateResult.rows.length === 0) {
+    return NextResponse.json({
+      message: "Status atualizado com sucesso!",
+      order: updatedOrder,
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
       return NextResponse.json(
         { error: "Pedido não encontrado." },
         { status: 404 },
       );
     }
 
-    return NextResponse.json({
-      message: "Status atualizado com sucesso!",
-      order: updateResult.rows[0],
-    });
-  } catch (error) {
     console.error("Erro ao atualizar status do pedido:", error);
     return NextResponse.json(
       { error: "Erro interno no servidor." },

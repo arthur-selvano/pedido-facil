@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 
 export async function GET(request) {
   try {
@@ -11,29 +11,34 @@ export async function GET(request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const result = await query("SELECT id FROM stores WHERE user_id = $1", [
-      decoded.userId,
-    ]);
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada!" },
         { status: 404 },
       );
     }
 
-    const store = result.rows[0];
+    const rawProducts = await prisma.products.findMany({
+      where: { store_id: store.id },
+      orderBy: { id: "asc" },
+      include: {
+        categories: {
+          select: { name: true },
+        },
+      },
+    });
 
-    const fetchProducts = await query(
-      `SELECT p.*, c.name AS category_name
-       FROM products p
-       JOIN categories c ON p.category_id = c.id
-       WHERE p.store_id = $1
-       ORDER BY p.id ASC`,
-      [store.id],
-    );
+    const products = rawProducts.map(({ categories, ...product }) => ({
+      ...product,
+      category_name: categories.name,
+    }));
 
-    return NextResponse.json({ products: fetchProducts.rows });
+    return NextResponse.json({ products });
   } catch (error) {
     console.error("Erro ao listar produtos:", error);
     return NextResponse.json(
@@ -52,24 +57,26 @@ export async function POST(request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const result = await query("SELECT id FROM stores WHERE user_id = $1", [
-      decoded.userId,
-    ]);
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada!" },
         { status: 404 },
       );
     }
 
-    const store = result.rows[0];
-
     const { category_id, name, description, price, image_url } =
       await request.json();
 
+    const categoryId = Number(category_id);
+
     if (
       !category_id ||
+      isNaN(categoryId) ||
       !name ||
       !name.trim() ||
       price === undefined ||
@@ -84,36 +91,33 @@ export async function POST(request) {
       );
     }
 
-    const categoryCheck = await query(
-      "SELECT id FROM categories WHERE id = $1 AND store_id = $2",
-      [category_id, store.id],
-    );
+    const categoryCheck = await prisma.categories.findFirst({
+      where: {
+        id: categoryId,
+        store_id: store.id,
+      },
+      select: { id: true },
+    });
 
-    if (categoryCheck.rows.length === 0) {
+    if (!categoryCheck) {
       return NextResponse.json(
         { error: "Categoria inválida ou não pertence à sua loja." },
         { status: 400 },
       );
     }
 
-    const postProducts = await query(
-      `INSERT INTO products (store_id, category_id, name, description, price, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        store.id,
-        category_id,
-        name.trim(),
-        description || null,
-        Number(price),
-        image_url || null,
-      ],
-    );
+    const newProduct = await prisma.products.create({
+      data: {
+        store_id: store.id,
+        category_id: categoryId,
+        name: name.trim(),
+        description: description || null,
+        price: Number(price),
+        image_url: image_url || null,
+      },
+    });
 
-    return NextResponse.json(
-      { product: postProducts.rows[0] },
-      { status: 201 },
-    );
+    return NextResponse.json({ product: newProduct }, { status: 201 });
   } catch (error) {
     console.error("Erro ao cadastrar produto:", error);
     return NextResponse.json(

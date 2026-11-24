@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 
 export async function GET(request) {
   try {
@@ -11,25 +11,24 @@ export async function GET(request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const result = await query("SELECT * FROM stores WHERE user_id = $1", [
-      decoded.userId,
-    ]);
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada!" },
         { status: 404 },
       );
     }
 
-    const store = result.rows[0];
+    const categories = await prisma.categories.findMany({
+      where: { store_id: store.id },
+      orderBy: { id: "asc" },
+    });
 
-    const fetchCategories = await query(
-      "SELECT * FROM categories WHERE store_id = $1 ORDER BY id ASC",
-      [store.id],
-    );
-
-    return NextResponse.json({ categories: fetchCategories.rows });
+    return NextResponse.json({ categories });
   } catch (error) {
     console.error("Erro ao listar categorias:", error);
     return NextResponse.json(
@@ -48,19 +47,17 @@ export async function POST(request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const storeResult = await query(
-      "SELECT id FROM stores WHERE user_id = $1",
-      [decoded.userId],
-    );
+    const store = await prisma.stores.findFirst({
+      where: { user_id: decoded.userId },
+      select: { id: true },
+    });
 
-    if (storeResult.rows.length === 0) {
+    if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada!" },
         { status: 404 },
       );
     }
-
-    const store = storeResult.rows[0];
 
     const { name } = await request.json();
 
@@ -71,15 +68,17 @@ export async function POST(request) {
       );
     }
 
-    const newCategory = await query(
-      "INSERT INTO categories (store_id, name) VALUES ($1, $2) RETURNING *",
-      [store.id, name.trim()],
-    );
+    const newCategory = await prisma.categories.create({
+      data: {
+        store_id: store.id,
+        name: name.trim(),
+      },
+    });
 
     return NextResponse.json(
       {
         message: "Categoria criada com sucesso!",
-        category: newCategory.rows[0],
+        category: newCategory,
       },
       { status: 201 },
     );
