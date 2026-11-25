@@ -19,6 +19,7 @@ export default function StoreMenu({ store, categories, products }) {
   const [orderError, setOrderError] = useState("");
   const [orderSuccess, setOrderSuccess] = useState(null);
 
+  const isOpen = store.is_open !== false;
   const deliveryFee = Number(store.delivery_fee) || 0;
 
   const filteredProducts =
@@ -27,6 +28,8 @@ export default function StoreMenu({ store, categories, products }) {
       : products.filter((p) => p.category_id === selectedCategory);
 
   function addToCart(product) {
+    if (!isOpen) return;
+
     setCart((prevCart) => {
       const existingIndex = prevCart.findIndex(
         (item) => item.product.id === product.id,
@@ -72,6 +75,11 @@ export default function StoreMenu({ store, categories, products }) {
 
   async function handlePlaceOrder(e) {
     e.preventDefault();
+    if (!isOpen) {
+      setOrderError("A loja está fechada no momento e não aceita pedidos.");
+      return;
+    }
+
     setOrderError("");
     setSubmitting(true);
 
@@ -115,36 +123,63 @@ export default function StoreMenu({ store, categories, products }) {
   return (
     <div className="min-h-screen bg-gray-100 pb-28">
       {/* Cabeçalho da Loja */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <img
-            src="/logo.png"
-            alt="Logo Pedido Fácil"
-            className="h-25 w-auto object-contain"
-          />
-          <div>
-            <h1 className="text-xl font-bold text-gray-800">{store.name}</h1>
-            <div className="flex flex-wrap gap-x-4 text-sm text-gray-500">
-              <span>
-                Taxa de entrega:{" "}
-                {deliveryFee === 0
-                  ? "Grátis"
-                  : `R$ ${deliveryFee.toFixed(2).replace(".", ",")}`}
-              </span>
-              {store.phone && <span>WhatsApp: {store.phone}</span>}
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
+        <div className="max-w-3xl mx-auto space-y-4">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <img
+              src="/logo.png"
+              alt="Logo Pedido Fácil"
+              className="h-16 sm:h-24 w-auto object-contain shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-bold text-gray-800 leading-tight">
+                  {store.name}
+                </h1>
+                <span
+                  className={`px-2.5 py-0.5 text-xs font-bold rounded-full border shrink-0 ${
+                    isOpen
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-red-50 text-red-700 border-red-300"
+                  }`}
+                >
+                  {isOpen ? "Aberta" : "Fechada"}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs sm:text-sm text-gray-500 mt-1">
+                <span>
+                  Taxa de entrega:{" "}
+                  {deliveryFee === 0
+                    ? "Grátis"
+                    : `R$ ${deliveryFee.toFixed(2).replace(".", ",")}`}
+                </span>
+                {store.phone && <span>WhatsApp: {store.phone}</span>}
+              </div>
             </div>
           </div>
+
+          {!isOpen && (
+            <div className="bg-red-50 border border-red-300 rounded-xl p-3.5 sm:p-4 text-red-800">
+              <h2 className="font-bold text-sm sm:text-base">
+                Loja fechada no momento
+              </h2>
+              <p className="text-xs sm:text-sm text-red-700 mt-0.5">
+                Você pode navegar pelo cardápio normalmente, mas não estamos
+                recebendo novos pedidos agora.
+              </p>
+            </div>
+          )}
         </div>
       </header>
 
       {/* Banner de Pedido Confirmado */}
       {orderSuccess && (
-        <div className="max-w-3xl mx-auto px-6 mt-6">
-          <div className="bg-green-50 border border-green-300 rounded-xl p-5 text-green-800">
-            <h2 className="font-bold text-lg">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 mt-4 sm:mt-6">
+          <div className="bg-green-50 border border-green-300 rounded-xl p-4 sm:p-5 text-green-800">
+            <h2 className="font-bold text-base sm:text-lg">
               Pedido #{orderSuccess.id} recebido com sucesso!
             </h2>
-            <p className="text-sm mt-1">
+            <p className="text-xs sm:text-sm mt-1">
               Obrigado, <strong>{orderSuccess.customer_name}</strong>. Seu
               pedido já foi enviado para a cozinha de{" "}
               <strong>{store.name}</strong>.
@@ -161,10 +196,10 @@ export default function StoreMenu({ store, categories, products }) {
 
       {/* Barra de Categorias */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex gap-2 overflow-x-auto">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-2.5 sm:py-3 flex gap-2 overflow-x-auto">
           <button
             onClick={() => setSelectedCategory("all")}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition cursor-pointer ${
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition cursor-pointer ${
               selectedCategory === "all"
                 ? "bg-[#BC0202] text-white"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -176,7 +211,7 @@ export default function StoreMenu({ store, categories, products }) {
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition cursor-pointer ${
+              className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition cursor-pointer ${
                 selectedCategory === cat.id
                   ? "bg-[#BC0202] text-white"
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -189,7 +224,7 @@ export default function StoreMenu({ store, categories, products }) {
       </div>
 
       {/* Lista de Produtos */}
-      <main className="max-w-3xl mx-auto px-6 py-6 space-y-4">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-3 sm:space-y-4">
         {filteredProducts.length === 0 ? (
           <div className="bg-white rounded-xl p-8 text-center text-gray-500 text-sm">
             Nenhum item disponível nesta categoria.
@@ -201,31 +236,40 @@ export default function StoreMenu({ store, categories, products }) {
             return (
               <div
                 key={prod.id}
-                className="bg-white rounded-2xl p-4 shadow-md border border-gray-200 flex items-center justify-between gap-4"
+                className="bg-white rounded-2xl p-3.5 sm:p-4 shadow-md border border-gray-200 flex items-center justify-between gap-3 sm:gap-4"
               >
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-800">{prod.name}</h3>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm sm:text-base text-gray-800">
+                    {prod.name}
+                  </h3>
                   {prod.description && (
-                    <p className="text-sm text-gray-500 mt-1">
+                    <p className="text-xs sm:text-sm text-gray-500 mt-1 line-clamp-2">
                       {prod.description}
                     </p>
                   )}
-                  <p className="font-bold text-[#BC0202] mt-2">
+                  <p className="font-bold text-sm sm:text-base text-[#BC0202] mt-2">
                     R$ {Number(prod.price).toFixed(2).replace(".", ",")}
                   </p>
                 </div>
 
                 {/* Controles + e - */}
-                <div className="flex items-center gap-2">
-                  {qty > 0 ? (
-                    <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isOpen ? (
+                    <button
+                      disabled
+                      className="px-3 sm:px-4 py-2 bg-gray-200 text-gray-500 text-xs sm:text-sm font-semibold rounded-lg cursor-not-allowed"
+                    >
+                      Fechado
+                    </button>
+                  ) : qty > 0 ? (
+                    <div className="flex items-center gap-2.5 sm:gap-3 bg-red-50 border border-red-200 rounded-lg px-2 sm:px-2.5 py-1.5">
                       <button
                         onClick={() => decreaseQuantity(prod.id)}
                         className="text-[#BC0202] font-bold px-1.5 cursor-pointer"
                       >
                         -
                       </button>
-                      <span className="text-sm font-semibold text-gray-800">
+                      <span className="text-xs sm:text-sm font-semibold text-gray-800">
                         {qty}
                       </span>
                       <button
@@ -238,7 +282,7 @@ export default function StoreMenu({ store, categories, products }) {
                   ) : (
                     <button
                       onClick={() => addToCart(prod)}
-                      className="px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-semibold rounded-lg transition cursor-pointer"
+                      className="px-3.5 sm:px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-semibold rounded-lg transition cursor-pointer"
                     >
                       Adicionar
                     </button>
@@ -251,21 +295,21 @@ export default function StoreMenu({ store, categories, products }) {
       </main>
 
       {/* Barra Flutuante Inferior do Carrinho */}
-      {totalItems > 0 && !isCheckoutOpen && (
-        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 p-4 shadow-lg">
-          <div className="max-w-3xl mx-auto flex items-center justify-between">
+      {isOpen && totalItems > 0 && !isCheckoutOpen && (
+        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 px-4 sm:px-6 py-3.5 sm:py-4 shadow-lg z-20">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
             <div>
               <span className="text-xs text-gray-500 block">
                 {totalItems} {totalItems === 1 ? "item" : "itens"} na sacola
               </span>
-              <strong className="text-lg text-gray-800">
+              <strong className="text-base sm:text-lg text-gray-800">
                 R$ {subtotal.toFixed(2).replace(".", ",")}
               </strong>
             </div>
 
             <button
               onClick={() => setIsCheckoutOpen(true)}
-              className="px-6 py-3 bg-[#BC0202] hover:bg-[#830000] text-white font-semibold rounded-xl transition cursor-pointer"
+              className="px-4 sm:px-6 py-2.5 sm:py-3 bg-[#BC0202] hover:bg-[#830000] text-white text-sm sm:text-base font-semibold rounded-xl transition cursor-pointer"
             >
               Ver Sacola e Finalizar
             </button>
@@ -275,29 +319,31 @@ export default function StoreMenu({ store, categories, products }) {
 
       {/* Modal de Checkout */}
       {isCheckoutOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
-              <h2 className="text-lg font-bold text-gray-800">Seu Pedido</h2>
+              <h2 className="text-base sm:text-lg font-bold text-gray-800">
+                Seu Pedido
+              </h2>
               <button
                 onClick={() => setIsCheckoutOpen(false)}
-                className="text-gray-400 hover:text-gray-600 font-bold text-lg cursor-pointer"
+                className="text-gray-400 hover:text-gray-600 font-bold text-lg px-2 cursor-pointer"
               >
                 X
               </button>
             </div>
 
             {/* Resumo dos itens */}
-            <div className="space-y-2 mb-4 pb-4 border-b border-gray-100 text-sm">
+            <div className="space-y-2 mb-4 pb-4 border-b border-gray-100 text-xs sm:text-sm">
               {cart.map((item) => (
                 <div
                   key={item.product.id}
-                  className="flex items-center justify-between"
+                  className="flex items-center justify-between gap-2"
                 >
                   <span className="text-gray-700">
                     {item.quantity}x {item.product.name}
                   </span>
-                  <span className="font-medium text-gray-800">
+                  <span className="font-medium text-gray-800 shrink-0">
                     R${" "}
                     {(Number(item.product.price) * item.quantity)
                       .toFixed(2)
@@ -315,7 +361,7 @@ export default function StoreMenu({ store, categories, products }) {
                 </span>
               </div>
 
-              <div className="flex justify-between text-base font-bold text-gray-800 pt-1">
+              <div className="flex justify-between text-sm sm:text-base font-bold text-gray-800 pt-1">
                 <span>Total</span>
                 <span>R$ {finalTotal.toFixed(2).replace(".", ",")}</span>
               </div>
@@ -338,7 +384,7 @@ export default function StoreMenu({ store, categories, products }) {
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="Ex: João Silva"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                 />
               </div>
 
@@ -347,12 +393,12 @@ export default function StoreMenu({ store, categories, products }) {
                   WhatsApp para contato
                 </label>
                 <input
-                  type="text"
+                  type="tel"
                   required
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="Ex: 34999999999"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                 />
               </div>
 
@@ -360,7 +406,7 @@ export default function StoreMenu({ store, categories, products }) {
                 <button
                   type="button"
                   onClick={() => setDeliveryType("delivery")}
-                  className={`py-2 rounded-lg text-sm font-medium border cursor-pointer ${
+                  className={`py-2.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium border cursor-pointer ${
                     deliveryType === "delivery"
                       ? "bg-red-50 border-[#BC0202] text-[#830000]"
                       : "border-gray-300 text-gray-600"
@@ -371,7 +417,7 @@ export default function StoreMenu({ store, categories, products }) {
                 <button
                   type="button"
                   onClick={() => setDeliveryType("pickup")}
-                  className={`py-2 rounded-lg text-sm font-medium border cursor-pointer ${
+                  className={`py-2.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium border cursor-pointer ${
                     deliveryType === "pickup"
                       ? "bg-red-50 border-[#BC0202] text-[#830000]"
                       : "border-gray-300 text-gray-600"
@@ -392,7 +438,7 @@ export default function StoreMenu({ store, categories, products }) {
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     placeholder="Rua, número, bairro e complemento"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                   />
                 </div>
               )}
@@ -404,7 +450,7 @@ export default function StoreMenu({ store, categories, products }) {
                 <select
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202] bg-white"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202] bg-white"
                 >
                   <option value="pix">PIX</option>
                   <option value="card">Cartão na entrega</option>
@@ -421,14 +467,14 @@ export default function StoreMenu({ store, categories, products }) {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Ex: Tirar cebola, troco para R$ 50..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={submitting}
-                className="w-full py-3 bg-[#BC0202] hover:bg-[#830000] disabled:bg-[#830000] text-white font-bold rounded-xl transition cursor-pointer mt-2"
+                disabled={submitting || !isOpen}
+                className="w-full py-3 bg-[#BC0202] hover:bg-[#830000] disabled:bg-gray-400 text-white text-sm sm:text-base font-bold rounded-xl transition cursor-pointer mt-2"
               >
                 {submitting ? "Enviando pedido..." : "Confirmar Pedido"}
               </button>

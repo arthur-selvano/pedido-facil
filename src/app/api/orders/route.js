@@ -46,13 +46,22 @@ export async function POST(request) {
 
     const store = await prisma.stores.findUnique({
       where: { id: Number(store_id) },
-      select: { id: true, delivery_fee: true },
+      select: { id: true, delivery_fee: true, is_open: true },
     });
 
     if (!store) {
       return NextResponse.json(
         { error: "Loja não encontrada." },
         { status: 404 },
+      );
+    }
+
+    if (!store.is_open) {
+      return NextResponse.json(
+        {
+          error: "A loja está fechada no momento e não está aceitando pedidos.",
+        },
+        { status: 400 },
       );
     }
 

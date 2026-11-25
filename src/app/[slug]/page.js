@@ -1,42 +1,62 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import StoreMenu from "../components/StoreMenu";
 
 async function StoreLoader({ params }) {
   const { slug } = await params;
 
-  const storeResult = await query(
-    "SELECT id, name, slug, phone, delivery_fee FROM stores WHERE slug = $1",
-    [slug.toLowerCase()],
-  );
+  const storeData = await prisma.stores.findFirst({
+    where: { slug: slug.toLowerCase() },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      phone: true,
+      delivery_fee: true,
+      is_open: true,
+    },
+  });
 
-  if (storeResult.rows.length === 0) {
+  if (!storeData) {
     notFound();
   }
 
-  const store = storeResult.rows[0];
-
-  const [categoriesResult, productsResult] = await Promise.all([
-    query(
-      "SELECT id, name FROM categories WHERE store_id = $1 ORDER BY id ASC",
-      [store.id],
-    ),
-    query(
-      `SELECT id, category_id, name, description, price, image_url
-       FROM products
-       WHERE store_id = $1 AND available = TRUE
-       ORDER BY id ASC`,
-      [store.id],
-    ),
+  const [categories, productsData] = await Promise.all([
+    prisma.categories.findMany({
+      where: { store_id: storeData.id },
+      select: { id: true, name: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.products.findMany({
+      where: {
+        store_id: storeData.id,
+        available: true,
+      },
+      select: {
+        id: true,
+        category_id: true,
+        name: true,
+        description: true,
+        price: true,
+        image_url: true,
+      },
+      orderBy: { id: "asc" },
+    }),
   ]);
 
+  const store = {
+    ...storeData,
+    delivery_fee: Number(storeData.delivery_fee || 0),
+  };
+
+  const products = productsData.map((product) => ({
+    ...product,
+    price: Number(product.price),
+  }));
+
   return (
-    <StoreMenu
-      store={store}
-      categories={categoriesResult.rows}
-      products={productsResult.rows}
-    />
+    <StoreMenu store={store} categories={categories} products={products} />
   );
 }
 
