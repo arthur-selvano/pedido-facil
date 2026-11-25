@@ -4,6 +4,7 @@ import { useState } from "react";
 
 export default function StoreMenu({ store, categories, products }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [brokenImages, setBrokenImages] = useState({});
 
   const [cart, setCart] = useState([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -232,61 +233,80 @@ export default function StoreMenu({ store, categories, products }) {
         ) : (
           filteredProducts.map((prod) => {
             const qty = getItemQuantity(prod.id);
+            const hasImage = prod.image_url && !brokenImages[prod.id];
 
             return (
               <div
                 key={prod.id}
-                className="bg-white rounded-2xl p-3.5 sm:p-4 shadow-md border border-gray-200 flex items-center justify-between gap-3 sm:gap-4"
+                className="bg-white rounded-2xl p-3.5 sm:p-4 shadow-sm border border-gray-200 flex items-start gap-3.5 sm:gap-4"
               >
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm sm:text-base text-gray-800">
-                    {prod.name}
-                  </h3>
-                  {prod.description && (
-                    <p className="text-xs sm:text-sm text-gray-500 mt-1 line-clamp-2">
-                      {prod.description}
-                    </p>
-                  )}
-                  <p className="font-bold text-sm sm:text-base text-[#BC0202] mt-2">
-                    R$ {Number(prod.price).toFixed(2).replace(".", ",")}
-                  </p>
-                </div>
+                {/* Foto à Esquerda */}
+                {hasImage && (
+                  <img
+                    src={prod.image_url}
+                    alt={prod.name}
+                    onError={() =>
+                      setBrokenImages((prev) => ({ ...prev, [prod.id]: true }))
+                    }
+                    className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl object-cover border border-gray-100 bg-gray-50 shrink-0"
+                  />
+                )}
 
-                {/* Controles + e - */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {!isOpen ? (
-                    <button
-                      disabled
-                      className="px-3 sm:px-4 py-2 bg-gray-200 text-gray-500 text-xs sm:text-sm font-semibold rounded-lg cursor-not-allowed"
-                    >
-                      Fechado
-                    </button>
-                  ) : qty > 0 ? (
-                    <div className="flex items-center gap-2.5 sm:gap-3 bg-red-50 border border-red-200 rounded-lg px-2 sm:px-2.5 py-1.5">
-                      <button
-                        onClick={() => decreaseQuantity(prod.id)}
-                        className="text-[#BC0202] font-bold px-1.5 cursor-pointer"
-                      >
-                        -
-                      </button>
-                      <span className="text-xs sm:text-sm font-semibold text-gray-800">
-                        {qty}
-                      </span>
-                      <button
-                        onClick={() => addToCart(prod)}
-                        className="text-[#BC0202] font-bold px-1.5 cursor-pointer"
-                      >
-                        +
-                      </button>
+                {/* Informações e Ação */}
+                <div className="flex-1 min-w-0 min-h-24 sm:min-h-28 flex flex-col justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-gray-900 leading-snug">
+                      {prod.name}
+                    </h3>
+                    {prod.description && (
+                      <p className="text-xs sm:text-sm text-gray-500 mt-1 line-clamp-2 leading-relaxed">
+                        {prod.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Linha Inferior Alinhada: Preço + Botão */}
+                  <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between gap-2">
+                    <span className="font-extrabold text-sm sm:text-base text-[#BC0202] whitespace-nowrap">
+                      R$ {Number(prod.price).toFixed(2).replace(".", ",")}
+                    </span>
+
+                    <div className="shrink-0">
+                      {!isOpen ? (
+                        <button
+                          disabled
+                          className="h-8 sm:h-9 px-3.5 bg-gray-200 text-gray-500 text-xs sm:text-sm font-semibold rounded-lg cursor-not-allowed"
+                        >
+                          Fechado
+                        </button>
+                      ) : qty > 0 ? (
+                        <div className="h-8 sm:h-9 inline-flex items-center gap-2.5 bg-red-50 border border-red-200 rounded-lg px-2.5">
+                          <button
+                            onClick={() => decreaseQuantity(prod.id)}
+                            className="text-[#BC0202] font-bold px-1 cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <span className="text-xs sm:text-sm font-bold text-gray-900 min-w-4 text-center">
+                            {qty}
+                          </span>
+                          <button
+                            onClick={() => addToCart(prod)}
+                            className="text-[#BC0202] font-bold px-1 cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => addToCart(prod)}
+                          className="h-8 sm:h-9 px-4 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-semibold rounded-lg transition cursor-pointer"
+                        >
+                          Adicionar
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => addToCart(prod)}
-                      className="px-3.5 sm:px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-semibold rounded-lg transition cursor-pointer"
-                    >
-                      Adicionar
-                    </button>
-                  )}
+                  </div>
                 </div>
               </div>
             );
@@ -334,15 +354,31 @@ export default function StoreMenu({ store, categories, products }) {
             </div>
 
             {/* Resumo dos itens */}
-            <div className="space-y-2 mb-4 pb-4 border-b border-gray-100 text-xs sm:text-sm">
+            <div className="space-y-2.5 mb-4 pb-4 border-b border-gray-100 text-xs sm:text-sm">
               {cart.map((item) => (
                 <div
                   key={item.product.id}
-                  className="flex items-center justify-between gap-2"
+                  className="flex items-center justify-between gap-2.5"
                 >
-                  <span className="text-gray-700">
-                    {item.quantity}x {item.product.name}
-                  </span>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {item.product.image_url &&
+                      !brokenImages[item.product.id] && (
+                        <img
+                          src={item.product.image_url}
+                          alt={item.product.name}
+                          onError={() =>
+                            setBrokenImages((prev) => ({
+                              ...prev,
+                              [item.product.id]: true,
+                            }))
+                          }
+                          className="w-10 h-10 rounded-lg object-cover border border-gray-100 shrink-0"
+                        />
+                      )}
+                    <span className="text-gray-700 truncate">
+                      {item.quantity}x {item.product.name}
+                    </span>
+                  </div>
                   <span className="font-medium text-gray-800 shrink-0">
                     R${" "}
                     {(Number(item.product.price) * item.quantity)
