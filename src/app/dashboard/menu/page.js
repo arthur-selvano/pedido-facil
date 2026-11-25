@@ -23,6 +23,18 @@ export default function MenuManagementPage() {
   const [prodError, setProdError] = useState("");
   const [savingProduct, setSavingProduct] = useState(false);
 
+  const [togglingId, setTogglingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editCategoryId, setEditCategoryId] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editImageUrl, setEditImageUrl] = useState("");
+  const [editError, setEditError] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   useEffect(() => {
     async function loadMenuData() {
       try {
@@ -121,6 +133,7 @@ export default function MenuManagementPage() {
 
       const createdProduct = {
         ...data.product,
+        available: data.product.available !== false,
         category_name: selectedCategory
           ? selectedCategory.name
           : "Sem categoria",
@@ -139,6 +152,133 @@ export default function MenuManagementPage() {
     }
   }
 
+  async function handleToggleAvailability(product) {
+    const isCurrentlyAvailable = product.available !== false;
+    const nextAvailable = !isCurrentlyAvailable;
+
+    setTogglingId(product.id);
+    try {
+      const response = await fetch(`/api/products/${product.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ available: nextAvailable }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.error || "Erro ao atualizar disponibilidade.");
+        return;
+      }
+
+      setProducts((prev) =>
+        prev.map((item) =>
+          item.id === product.id ? { ...item, available: nextAvailable } : item,
+        ),
+      );
+    } catch (error) {
+      alert("Erro de conexão com o servidor.");
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  function openEditModal(product) {
+    setEditingProduct(product);
+    setEditName(product.name || "");
+    setEditCategoryId(
+      String(product.category_id || (categories[0] ? categories[0].id : "")),
+    );
+    setEditDescription(product.description || "");
+    setEditPrice(String(product.price ?? ""));
+    setEditImageUrl(product.image_url || "");
+    setEditError("");
+  }
+
+  async function handleUpdateProduct(e) {
+    e.preventDefault();
+    if (!editingProduct) return;
+
+    setEditError("");
+    setSavingEdit(true);
+
+    try {
+      const response = await fetch(`/api/products/${editingProduct.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category_id: Number(editCategoryId),
+          name: editName,
+          description: editDescription,
+          price: Number(editPrice),
+          image_url: editImageUrl,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setEditError(data.error || "Erro ao salvar alterações.");
+        setSavingEdit(false);
+        return;
+      }
+
+      const selectedCategory = categories.find(
+        (cat) => cat.id === Number(editCategoryId),
+      );
+
+      setProducts((prev) =>
+        prev.map((item) =>
+          item.id === editingProduct.id
+            ? {
+                ...item,
+                ...data.product,
+                category_name: selectedCategory
+                  ? selectedCategory.name
+                  : item.category_name,
+              }
+            : item,
+        ),
+      );
+
+      setEditingProduct(null);
+    } catch (error) {
+      setEditError("Erro de conexão com o servidor.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function handleDeleteProduct(product) {
+    const confirmed = window.confirm(
+      `Tem certeza que deseja excluir "${product.name}"? Se ele já tiver pedidos registrados, prefira apenas pausar o item.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(product.id);
+    try {
+      const response = await fetch(`/api/products/${product.id}`, {
+        method: "DELETE",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(
+          data.error ||
+            "Não foi possível excluir. Se o item já está em pedidos antigos, use o botão Disponível para pausá-lo.",
+        );
+        return;
+      }
+
+      setProducts((prev) => prev.filter((item) => item.id !== product.id));
+    } catch (error) {
+      alert("Erro de conexão com o servidor.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -149,19 +289,19 @@ export default function MenuManagementPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <img
               src="/logo.png"
               alt="Logo Pedido Fácil"
-              className="h-25 w-auto object-contain"
+              className="h-16 sm:h-24 w-auto object-contain shrink-0"
             />
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold text-gray-800 truncate">
                 Gerenciar Cardápio
               </h1>
-              <p className="text-sm text-gray-500">
+              <p className="text-xs sm:text-sm text-gray-500">
                 Organize suas categorias e cadastre os itens da loja
               </p>
             </div>
@@ -169,19 +309,19 @@ export default function MenuManagementPage() {
 
           <Link
             href="/dashboard"
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-xl transition"
+            className="px-3.5 sm:px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs sm:text-sm font-semibold rounded-xl transition shrink-0"
           >
             Voltar ao Painel
           </Link>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* COLUNA ESQUERDA: Formulários */}
         <div className="space-y-6">
           {/* Card 1: Nova Categoria */}
-          <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">
+          <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4">
               Nova Categoria
             </h2>
 
@@ -202,20 +342,19 @@ export default function MenuManagementPage() {
                   value={categoryName}
                   onChange={(e) => setCategoryName(e.target.value)}
                   placeholder="Ex: Lanches, Bebidas, Sobremesas"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={savingCategory}
-                className="w-full py-2 px-4 bg-[#BC0202] hover:bg-[#830000] disabled:bg-[#830000] text-white text-sm font-bold rounded-xl transition cursor-pointer"
+                className="w-full py-2.5 px-4 bg-[#BC0202] hover:bg-[#830000] disabled:bg-[#830000] text-white text-sm font-bold rounded-xl transition cursor-pointer"
               >
                 {savingCategory ? "Salvando..." : "Adicionar Categoria"}
               </button>
             </form>
 
-            {/* Tags das categorias existentes */}
             {categories.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <span className="text-xs font-medium text-gray-500 block mb-2">
@@ -236,8 +375,8 @@ export default function MenuManagementPage() {
           </div>
 
           {/* Card 2: Novo Produto */}
-          <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">
+          <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4">
               Novo Produto
             </h2>
 
@@ -261,7 +400,7 @@ export default function MenuManagementPage() {
                     <select
                       value={categoryId}
                       onChange={(e) => setCategoryId(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                     >
                       {categories.map((cat) => (
                         <option key={cat.id} value={cat.id}>
@@ -281,7 +420,7 @@ export default function MenuManagementPage() {
                       value={productName}
                       onChange={(e) => setProductName(e.target.value)}
                       placeholder="Ex: X-Tudo Duplo"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                     />
                   </div>
 
@@ -294,7 +433,7 @@ export default function MenuManagementPage() {
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="Ingredientes, tamanho, acompanhamentos..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                     />
                   </div>
 
@@ -310,7 +449,7 @@ export default function MenuManagementPage() {
                       value={price}
                       onChange={(e) => setPrice(e.target.value)}
                       placeholder="25.90"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                     />
                   </div>
 
@@ -323,7 +462,7 @@ export default function MenuManagementPage() {
                       value={imageUrl}
                       onChange={(e) => setImageUrl(e.target.value)}
                       placeholder="https://..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
                     />
                   </div>
 
@@ -342,8 +481,8 @@ export default function MenuManagementPage() {
 
         {/* COLUNA DIREITA: Lista de Produtos Cadastrados */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">
+          <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4">
               Produtos no Cardápio ({products.length})
             </h2>
 
@@ -354,39 +493,216 @@ export default function MenuManagementPage() {
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {products.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="py-4 first:pt-0 last:pb-0 flex items-start justify-between gap-4"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-800">
-                          {prod.name}
-                        </h3>
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                          {prod.category_name}
-                        </span>
-                      </div>
-                      {prod.description && (
-                        <p className="text-sm text-gray-500 mt-1">
-                          {prod.description}
-                        </p>
-                      )}
-                    </div>
+                {products.map((prod) => {
+                  const isAvailable = prod.available !== false;
+                  const isToggling = togglingId === prod.id;
+                  const isDeleting = deletingId === prod.id;
 
-                    <div className="text-right shrink-0">
-                      <span className="font-bold text-[#BC0202]">
-                        R$ {Number(prod.price).toFixed(2).replace(".", ",")}
-                      </span>
+                  return (
+                    <div
+                      key={prod.id}
+                      className={`py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 transition ${
+                        !isAvailable ? "opacity-65" : ""
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        {prod.image_url && (
+                          <img
+                            src={prod.image_url}
+                            alt={prod.name}
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                            className="w-16 h-16 rounded-xl object-cover border border-gray-100 bg-gray-50 shrink-0"
+                          />
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold text-gray-800">
+                              {prod.name}
+                            </h3>
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-medium">
+                              {prod.category_name}
+                            </span>
+                            {!isAvailable && (
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded text-xs font-bold">
+                                Pausado / Esgotado
+                              </span>
+                            )}
+                          </div>
+
+                          {prod.description && (
+                            <p className="text-xs sm:text-sm text-gray-500 mt-1 line-clamp-2">
+                              {prod.description}
+                            </p>
+                          )}
+
+                          <p className="font-bold text-sm sm:text-base text-[#BC0202] mt-1.5">
+                            R$ {Number(prod.price).toFixed(2).replace(".", ",")}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Ações do Produto */}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                        <button
+                          type="button"
+                          disabled={isToggling}
+                          onClick={() => handleToggleAvailability(prod)}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition cursor-pointer disabled:opacity-50 ${
+                            isAvailable
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                              : "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
+                          }`}
+                        >
+                          {isToggling
+                            ? "..."
+                            : isAvailable
+                              ? "Disponível"
+                              : "Ativar Item"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(prod)}
+                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg border border-gray-300 transition cursor-pointer"
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={() => handleDeleteProduct(prod)}
+                          className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg border border-red-200 transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isDeleting ? "..." : "Excluir"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
       </main>
+
+      {/* MODAL DE EDIÇÃO DE PRODUTO */}
+      {editingProduct && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <h2 className="text-base sm:text-lg font-bold text-gray-800">
+                Editar Produto
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditingProduct(null)}
+                className="text-gray-400 hover:text-gray-600 font-bold text-lg px-2 cursor-pointer"
+              >
+                X
+              </button>
+            </div>
+
+            {editError && (
+              <div className="mb-3 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs">
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateProduct} className="space-y-3">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  Categoria
+                </label>
+                <select
+                  value={editCategoryId}
+                  onChange={(e) => setEditCategoryId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                >
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  Nome do Produto
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  Descrição (opcional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  Preço (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  URL da Foto (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={editImageUrl}
+                  onChange={(e) => setEditImageUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProduct(null)}
+                  className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="flex-1 py-2.5 px-4 bg-[#BC0202] hover:bg-[#830000] disabled:bg-[#830000] text-white text-sm font-bold rounded-xl transition cursor-pointer"
+                >
+                  {savingEdit ? "Salvando..." : "Salvar Alterações"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
