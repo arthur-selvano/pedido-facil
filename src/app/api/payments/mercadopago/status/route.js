@@ -7,16 +7,38 @@ import {
   extractPixDataFromOrder,
 } from "@/lib/mercadopago";
 import { notifyPaymentConfirmed } from "@/lib/whatsapp";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  verifyOrderAccessToken,
+} from "@/lib/security";
 
 export async function GET(request) {
   try {
+    const rl = checkRateLimit(request, {
+      key: "payments:mp:status",
+      limit: 60,
+      windowMs: 5 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimitResponse(rl.retryAfterSeconds);
+    }
+
     const url = new URL(request.url);
     const orderId = Number(url.searchParams.get("order_id"));
+    const token = url.searchParams.get("token");
 
     if (!orderId || Number.isNaN(orderId)) {
       return NextResponse.json(
         { error: "ID do pedido inválido." },
         { status: 400 },
+      );
+    }
+
+    if (!verifyOrderAccessToken(orderId, token)) {
+      return NextResponse.json(
+        { error: "Não autorizado para consultar este pedido." },
+        { status: 403 },
       );
     }
 

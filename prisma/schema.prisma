@@ -38,6 +38,7 @@ model orders {
   payment_status String        @default("unpaid") @db.VarChar(30)
   payment_id     String?       @db.VarChar(100)
   payment_url    String?
+  change_for     Decimal?      @db.Decimal(10, 2)
   notes          String?
   subtotal       Decimal       @db.Decimal(10, 2)
   delivery_fee   Decimal       @default(0) @db.Decimal(10, 2)

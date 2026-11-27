@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/auth";
+import { isValidHttpUrl } from "@/lib/security";
 
 const PRODUCT_NAME_MAX_LENGTH = 150;
 
@@ -162,6 +163,12 @@ export async function PATCH(request, { params }) {
     if (body.image_url !== undefined) {
       const imageUrl =
         typeof body.image_url === "string" ? body.image_url.trim() : "";
+      if (imageUrl && !isValidHttpUrl(imageUrl)) {
+        return NextResponse.json(
+          { error: "Informe uma URL de imagem válida (http:// ou https://)." },
+          { status: 400 },
+        );
+      }
       updateData.image_url = imageUrl || null;
     }
 

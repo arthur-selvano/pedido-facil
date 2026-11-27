@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { validateMercadoPagoToken } from "@/lib/mercadopago";
+import { encryptSecret, decryptSecret } from "@/lib/security";
 
 async function getAuthenticatedStore(request) {
   const token = request.cookies.get("token")?.value;
@@ -43,7 +44,8 @@ export async function GET(request) {
     const { store, errorResponse } = await getAuthenticatedStore(request);
     if (errorResponse) return errorResponse;
 
-    const hasStoreToken = Boolean(store.mp_access_token?.trim());
+    const decryptedStoreToken = decryptSecret(store.mp_access_token)?.trim();
+    const hasStoreToken = Boolean(decryptedStoreToken);
     const hasStorePublicKey = Boolean(store.mp_public_key?.trim());
     const hasPlatformFallback = Boolean(
       process.env.MERCADOPAGO_ACCESS_TOKEN?.trim(),
@@ -58,8 +60,7 @@ export async function GET(request) {
       hasPublicKey: hasStorePublicKey || hasPlatformPublicKey,
       hasStorePublicKey,
       hasPlatformFallback,
-      isSandbox:
-        hasStoreToken && store.mp_access_token.trim().startsWith("TEST-"),
+      isSandbox: hasStoreToken && decryptedStoreToken.startsWith("TEST-"),
     });
   } catch (error) {
     console.error("Erro ao consultar configuração do Mercado Pago:", error);
@@ -99,7 +100,7 @@ export async function POST(request) {
     await prisma.stores.update({
       where: { id: store.id },
       data: {
-        mp_access_token: accessToken,
+        mp_access_token: encryptSecret(accessToken),
         mp_public_key: publicKey || null,
       },
     });

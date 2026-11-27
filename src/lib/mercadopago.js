@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { decryptSecret } from "@/lib/security";
 
 /**
  * Integração com Mercado Pago Orders API (/v1/orders) para Checkout Transparente
@@ -14,7 +15,7 @@ const MP_API_BASE = "https://api.mercadopago.com";
 const MP_TIMEOUT_MS = 15000;
 
 export function resolveMercadoPagoToken(store) {
-  const storeToken = store?.mp_access_token?.trim();
+  const storeToken = decryptSecret(store?.mp_access_token)?.trim();
   if (storeToken) return storeToken;
 
   const fallbackToken = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();

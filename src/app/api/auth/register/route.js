@@ -1,16 +1,39 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  isValidEmail,
+} from "@/lib/security";
 
 export async function POST(request) {
   try {
-    const { name, email, password } = await request.json();
+    const rl = checkRateLimit(request, {
+      key: "auth:register",
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimitResponse(rl.retryAfterSeconds);
+    }
 
-    if (!name || !email || !password || password.length < 6) {
+    const body = await request.json().catch(() => null);
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const password = typeof body?.password === "string" ? body.password : "";
+
+    if (
+      !name ||
+      name.length > 100 ||
+      !isValidEmail(email) ||
+      password.length < 6 ||
+      password.length > 128
+    ) {
       return NextResponse.json(
         {
           error:
-            "Não pode haver parâmetros nulos ou a senha tem que ser maior que 6 caracteres.",
+            "Preencha nome, um e-mail válido e uma senha com pelo menos 6 caracteres.",
         },
         { status: 400 },
       );

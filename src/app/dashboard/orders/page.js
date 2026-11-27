@@ -1,14 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import PrintReceiptModal from "@/app/components/PrintReceiptModal";
+import PdvOrderModal from "@/app/components/PdvOrderModal";
+import CashClosingModal from "@/app/components/CashClosingModal";
 import {
   loadPrinterPrefs,
   savePrinterPrefs,
   printThermalReceipt,
 } from "@/lib/thermalPrint";
+import {
+  loadSoundPreference,
+  saveSoundPreference,
+  playNewOrderChime,
+} from "@/lib/soundAlert";
 
 const STATUS_CONFIG = {
   pending: {
@@ -99,9 +106,42 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
   const [updatingId, setUpdatingId] = useState(null);
+  const [updatingPaymentId, setUpdatingPaymentId] = useState(null);
   const [error, setError] = useState("");
   const [printerPrefs, setPrinterPrefs] = useState(() => loadPrinterPrefs());
+  const [soundEnabled, setSoundEnabled] = useState(() => loadSoundPreference());
   const [previewOrder, setPreviewOrder] = useState(null);
+  const [isPdvOpen, setIsPdvOpen] = useState(false);
+  const [isCashClosingOpen, setIsCashClosingOpen] = useState(false);
+  const [newOrdersAlert, setNewOrdersAlert] = useState(0);
+
+  const knownOrderIdsRef = useRef(null);
+  const soundEnabledRef = useRef(soundEnabled);
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (newOrdersAlert > 0) {
+      document.title = `(${newOrdersAlert}) Novo Pedido! — Pedido Fácil`;
+    } else {
+      document.title = "Gestão de Pedidos — Pedido Fácil";
+    }
+    return () => {
+      document.title = "Pedido Fácil";
+    };
+  }, [newOrdersAlert]);
+
+  function handleToggleSound() {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    saveSoundPreference(next);
+    if (next) {
+      playNewOrderChime();
+    }
+  }
 
   function handleChangePrinterPrefs(nextPrefs) {
     setPrinterPrefs(nextPrefs);
@@ -115,6 +155,38 @@ export default function OrdersPage() {
       paperWidth: printerPrefs.paperWidth,
       copyMode: printerPrefs.copyMode,
     });
+  }
+
+  function handlePdvOrderCreated(newOrder, shouldPrint) {
+    setOrders((prev) => [newOrder, ...prev]);
+    if (knownOrderIdsRef.current) {
+      knownOrderIdsRef.current.add(newOrder.id);
+    }
+    if (shouldPrint) {
+      handleQuickPrint(newOrder);
+    }
+  }
+
+  function syncIncomingOrders(incomingOrders) {
+    if (knownOrderIdsRef.current === null) {
+      knownOrderIdsRef.current = new Set(incomingOrders.map((o) => o.id));
+      return;
+    }
+
+    const newlyArrivedPending = incomingOrders.filter(
+      (o) => !knownOrderIdsRef.current.has(o.id) && o.status === "pending",
+    );
+
+    for (const o of incomingOrders) {
+      knownOrderIdsRef.current.add(o.id);
+    }
+
+    if (newlyArrivedPending.length > 0) {
+      setNewOrdersAlert((prev) => prev + newlyArrivedPending.length);
+      if (soundEnabledRef.current) {
+        playNewOrderChime();
+      }
+    }
   }
 
   async function fetchOrders() {
@@ -131,6 +203,7 @@ export default function OrdersPage() {
         return;
       }
 
+      syncIncomingOrders(result.orders);
       setOrders(result.orders);
       if (result.store) setStore(result.store);
       setError("");
@@ -160,6 +233,7 @@ export default function OrdersPage() {
           return;
         }
 
+        syncIncomingOrders(result.orders);
         setOrders(result.orders);
         if (result.store) setStore(result.store);
         setError("");
@@ -182,6 +256,37 @@ export default function OrdersPage() {
       clearInterval(interval);
     };
   }, [router]);
+
+  async function handleTogglePaymentStatus(order) {
+    if (order.payment_method === "online") return;
+    const nextPaymentStatus =
+      order.payment_status === "paid" ? "unpaid" : "paid";
+    setUpdatingPaymentId(order.id);
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payment_status: nextPaymentStatus }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        alert(data.error || "Erro ao atualizar pagamento.");
+        return;
+      }
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id ? { ...o, payment_status: nextPaymentStatus } : o,
+        ),
+      );
+    } catch (err) {
+      console.error("Erro ao alterar pagamento:", err);
+      alert("Erro de conexão com o servidor.");
+    } finally {
+      setUpdatingPaymentId(null);
+    }
+  }
 
   async function handleStatusChange(orderId, newStatus) {
     setUpdatingId(orderId);
@@ -262,18 +367,48 @@ export default function OrdersPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsPdvOpen(true)}
+              className="px-3.5 sm:px-4 py-2 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] text-white text-xs sm:text-sm font-bold rounded-xl transition shadow-xs cursor-pointer"
+            >
+              + Novo Pedido (PDV)
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCashClosingOpen(true)}
+              className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer"
+            >
+              Fechamento de Caixa
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleSound}
+              title={
+                soundEnabled
+                  ? "Alerta sonoro ativado (clique para silenciar)"
+                  : "Alerta sonoro silenciado (clique para ativar)"
+              }
+              className={`px-3 py-2 text-xs sm:text-sm font-bold rounded-xl border transition cursor-pointer ${
+                soundEnabled
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                  : "bg-stone-100 text-zinc-500 border-stone-200 hover:bg-stone-200"
+              }`}
+            >
+              {soundEnabled ? "Som: ON" : "Som: OFF"}
+            </button>
             <button
               onClick={fetchOrders}
-              className="px-3.5 sm:px-4 py-2 bg-stone-100 hover:bg-stone-200/80 text-zinc-800 text-xs sm:text-sm font-bold rounded-xl border border-stone-200 transition cursor-pointer"
+              className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200/80 text-zinc-800 text-xs sm:text-sm font-bold rounded-xl border border-stone-200 transition cursor-pointer"
             >
-              Atualizar Agora
+              Atualizar
             </button>
             <Link
               href="/dashboard"
-              className="px-3.5 sm:px-4 py-2 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] text-white text-xs sm:text-sm font-bold rounded-xl transition shadow-xs"
+              className="px-3.5 py-2 bg-white hover:bg-stone-100 text-zinc-700 text-xs sm:text-sm font-bold rounded-xl border border-stone-200 transition"
             >
-              Voltar ao Painel
+              Painel
             </Link>
           </div>
         </div>
@@ -306,6 +441,26 @@ export default function OrdersPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        {newOrdersAlert > 0 && (
+          <div className="p-3.5 px-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+            <span className="text-sm font-extrabold">
+              {newOrdersAlert === 1
+                ? "Novo pedido recebido na fila!"
+                : `${newOrdersAlert} novos pedidos recebidos na fila!`}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setNewOrdersAlert(0);
+                setFilter("active");
+              }}
+              className="px-3 py-1 rounded-lg bg-amber-900 hover:bg-amber-800 text-white text-xs font-bold transition cursor-pointer"
+            >
+              Ciente
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
             {error}
@@ -445,12 +600,16 @@ export default function OrdersPage() {
                             className={`inline-block mt-1.5 px-2.5 py-0.5 text-[11px] font-extrabold tracking-wide rounded-md border ${
                               order.delivery_type === "delivery"
                                 ? "bg-zinc-100 text-zinc-800 border-zinc-200"
-                                : "bg-stone-100 text-stone-700 border-stone-200"
+                                : order.delivery_type === "counter"
+                                  ? "bg-red-50 text-[#830000] border-red-200"
+                                  : "bg-stone-100 text-stone-700 border-stone-200"
                             }`}
                           >
                             {order.delivery_type === "delivery"
                               ? "ENTREGA"
-                              : "RETIRADA NO BALCÃO"}
+                              : order.delivery_type === "counter"
+                                ? "BALCÃO / MESA"
+                                : "RETIRADA NO BALCÃO"}
                           </span>
                         </div>
 
@@ -525,18 +684,66 @@ export default function OrdersPage() {
                             {formatPayment(order.payment_method)}
                           </strong>
                         </span>
-                        {PAYMENT_STATUS_BADGE[order.payment_status] && (
-                          <span
-                            className={`px-2 py-0.5 text-[10px] font-extrabold rounded-md border ${PAYMENT_STATUS_BADGE[order.payment_status].className}`}
-                          >
-                            {PAYMENT_STATUS_BADGE[order.payment_status].label}
+                        {order.payment_status === "paid" ? (
+                          <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-md border bg-emerald-100 text-emerald-800 border-emerald-300">
+                            {order.payment_method === "online"
+                              ? "Pago Online ✓"
+                              : "Pago ✓"}
                           </span>
+                        ) : (
+                          PAYMENT_STATUS_BADGE[order.payment_status] && (
+                            <span
+                              className={`px-2 py-0.5 text-[10px] font-extrabold rounded-md border ${PAYMENT_STATUS_BADGE[order.payment_status].className}`}
+                            >
+                              {PAYMENT_STATUS_BADGE[order.payment_status].label}
+                            </span>
+                          )
                         )}
                       </div>
                       <span className="text-base font-black text-zinc-900">
                         R$ {formatPrice(order.total)}
                       </span>
                     </div>
+
+                    {order.payment_method === "cash" &&
+                      order.change_for !== null &&
+                      order.change_for !== undefined && (
+                        <div className="px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-center justify-between gap-2">
+                          <span>
+                            Troco p/{" "}
+                            <strong>R$ {formatPrice(order.change_for)}</strong>
+                          </span>
+                          <span className="font-black text-emerald-800">
+                            Levar R${" "}
+                            {formatPrice(
+                              Math.max(
+                                0,
+                                Number(order.change_for) - Number(order.total),
+                              ),
+                            )}
+                          </span>
+                        </div>
+                      )}
+
+                    {order.payment_method !== "online" &&
+                      order.status !== "canceled" && (
+                        <button
+                          type="button"
+                          disabled={updatingPaymentId === order.id}
+                          onClick={() => handleTogglePaymentStatus(order)}
+                          className={`w-full py-1.5 px-3 rounded-xl text-[11px] font-bold border transition cursor-pointer disabled:opacity-50 ${
+                            order.payment_status === "paid"
+                              ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200"
+                              : "bg-white hover:bg-emerald-50 text-zinc-700 hover:text-emerald-800 border-stone-200 hover:border-emerald-300"
+                          }`}
+                        >
+                          {updatingPaymentId === order.id
+                            ? "Atualizando pagamento..."
+                            : order.payment_status === "paid"
+                              ? "Pagamento Confirmado ✓ (desfazer)"
+                              : "Confirmar Pagamento Recebido"}
+                        </button>
+                      )}
 
                     {order.status === "pending" && (
                       <div className="flex gap-2">
@@ -638,6 +845,21 @@ export default function OrdersPage() {
         prefs={printerPrefs}
         onChangePrefs={handleChangePrinterPrefs}
         onClose={() => setPreviewOrder(null)}
+      />
+
+      <PdvOrderModal
+        isOpen={isPdvOpen}
+        store={store}
+        onClose={() => setIsPdvOpen(false)}
+        onOrderCreated={handlePdvOrderCreated}
+      />
+
+      <CashClosingModal
+        isOpen={isCashClosingOpen}
+        orders={orders}
+        store={store}
+        paperWidth={printerPrefs.paperWidth}
+        onClose={() => setIsCashClosingOpen(false)}
       />
     </div>
   );

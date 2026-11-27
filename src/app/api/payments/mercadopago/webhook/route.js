@@ -6,6 +6,7 @@ import {
   mapMercadoPagoOrderStatus,
 } from "@/lib/mercadopago";
 import { notifyPaymentConfirmed } from "@/lib/whatsapp";
+import { verifyMercadoPagoWebhookSignature } from "@/lib/security";
 
 export async function POST(request) {
   try {
@@ -35,6 +36,14 @@ export async function POST(request) {
 
     if (!mpOrderId) {
       return NextResponse.json({ received: true, ignored: true });
+    }
+
+    const sigCheck = verifyMercadoPagoWebhookSignature(request, mpOrderId);
+    if (!sigCheck.valid) {
+      console.warn(
+        `[mercadopago] Webhook rejeitado por assinatura inválida (${sigCheck.reason}).`,
+      );
+      return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
     }
 
     const storeIdFromQuery = Number(storeIdParam);

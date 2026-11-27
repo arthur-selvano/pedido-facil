@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid',
   payment_id VARCHAR(100),
   payment_url TEXT,
+  change_for NUMERIC(10, 2),
   notes TEXT,
   subtotal NUMERIC(10, 2) NOT NULL,
   delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0,

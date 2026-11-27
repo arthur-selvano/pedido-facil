@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isValidHttpUrl } from "@/lib/security";
 
 export async function GET(request) {
   try {
@@ -110,14 +111,27 @@ export async function POST(request) {
       );
     }
 
+    const cleanImageUrl =
+      typeof image_url === "string" ? image_url.trim() : "";
+
+    if (cleanImageUrl && !isValidHttpUrl(cleanImageUrl)) {
+      return NextResponse.json(
+        { error: "Informe uma URL de imagem válida (http:// ou https://)." },
+        { status: 400 },
+      );
+    }
+
     const newProduct = await prisma.products.create({
       data: {
         store_id: store.id,
         category_id: categoryId,
         name: name.trim(),
-        description: description || null,
+        description:
+          typeof description === "string" && description.trim()
+            ? description.trim()
+            : null,
         price: Number(price),
-        image_url: image_url || null,
+        image_url: cleanImageUrl || null,
       },
     });
 

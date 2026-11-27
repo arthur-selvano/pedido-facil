@@ -2,14 +2,30 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { signToken } from "@/lib/auth";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  isValidEmail,
+} from "@/lib/security";
 
 export async function POST(request) {
   try {
-    const { email, password } = await request.json();
+    const rl = checkRateLimit(request, {
+      key: "auth:login",
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimitResponse(rl.retryAfterSeconds);
+    }
 
-    if (!email || !password) {
+    const body = await request.json().catch(() => null);
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const password = typeof body?.password === "string" ? body.password : "";
+
+    if (!email || !password || !isValidEmail(email) || password.length > 128) {
       return NextResponse.json(
-        { error: "E-mail e senha são obrigatórios." },
+        { error: "E-mail ou senha inválidos." },
         { status: 400 },
       );
     }

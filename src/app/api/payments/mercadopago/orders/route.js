@@ -6,17 +6,39 @@ import {
   createCardOrder,
 } from "@/lib/mercadopago";
 import { notifyPaymentConfirmed } from "@/lib/whatsapp";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  verifyOrderAccessToken,
+} from "@/lib/security";
 
 export async function POST(request) {
   try {
+    const rl = checkRateLimit(request, {
+      key: "payments:mp:orders",
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimitResponse(rl.retryAfterSeconds);
+    }
+
     const body = await request.json().catch(() => null);
     const orderId = Number(body?.order_id);
+    const paymentToken = body?.payment_token;
     const method = body?.method === "card" ? "card" : "pix";
 
     if (!orderId || Number.isNaN(orderId)) {
       return NextResponse.json(
         { error: "ID do pedido inválido." },
         { status: 400 },
+      );
+    }
+
+    if (!verifyOrderAccessToken(orderId, paymentToken)) {
+      return NextResponse.json(
+        { error: "Token de pagamento inválido ou ausente." },
+        { status: 403 },
       );
     }
 
@@ -145,8 +167,7 @@ export async function POST(request) {
     return NextResponse.json(
       {
         error:
-          error?.message ||
-          "Não foi possível processar o pagamento agora. Tente novamente.",
+          "Não foi possível processar o pagamento agora. Confira os dados e tente novamente.",
       },
       { status: 502 },
     );

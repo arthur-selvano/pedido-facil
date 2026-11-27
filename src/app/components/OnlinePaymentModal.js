@@ -114,6 +114,7 @@ export default function OnlinePaymentModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           order_id: order.id,
+          payment_token: order.payment_token,
           method: "pix",
         }),
       });
@@ -138,7 +139,7 @@ export default function OnlinePaymentModal({
       setError("Erro de conexão ao gerar o PIX. Tente novamente.");
       setPaymentStatus("failed");
     }
-  }, [order.id, onPaid]);
+  }, [order.id, order.payment_token, onPaid]);
 
   // Gera o PIX automaticamente na primeira abertura na aba PIX
   useEffect(() => {
@@ -153,7 +154,7 @@ export default function OnlinePaymentModal({
       if (manual) setChecking(true);
       try {
         const res = await fetch(
-          `/api/payments/mercadopago/status?order_id=${encodeURIComponent(order.id)}`,
+          `/api/payments/mercadopago/status?order_id=${encodeURIComponent(order.id)}&token=${encodeURIComponent(order.payment_token || "")}`,
         );
         if (!res.ok) return;
         const data = await res.json();
@@ -171,7 +172,7 @@ export default function OnlinePaymentModal({
         if (manual) setChecking(false);
       }
     },
-    [order.id, onPaid],
+    [order.id, order.payment_token, onPaid],
   );
 
   // Polling automático a cada 4 segundos enquanto aguarda confirmação do PIX
@@ -237,6 +238,7 @@ export default function OnlinePaymentModal({
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       order_id: order.id,
+                      payment_token: order.payment_token,
                       method: "card",
                       card: {
                         token: formData.token,

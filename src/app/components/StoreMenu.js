@@ -25,6 +25,7 @@ export default function StoreMenu({ store, categories, products }) {
   const [paymentMethod, setPaymentMethod] = useState(
     hasOnlinePayment ? "online" : "pix",
   );
+  const [changeFor, setChangeFor] = useState("");
   const [notes, setNotes] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
@@ -34,10 +35,13 @@ export default function StoreMenu({ store, categories, products }) {
   const [paymentReturn, setPaymentReturn] = useState(null);
   const [checkingPayment, setCheckingPayment] = useState(false);
 
-  const verifyOrderPayment = useCallback(async (orderId) => {
+  const verifyOrderPayment = useCallback(async (orderId, paymentToken) => {
     setCheckingPayment(true);
     try {
-      const qs = new URLSearchParams({ order_id: String(orderId) });
+      const qs = new URLSearchParams({
+        order_id: String(orderId),
+        token: paymentToken || "",
+      });
       const res = await fetch(
         `/api/payments/mercadopago/status?${qs.toString()}`,
       );
@@ -45,6 +49,7 @@ export default function StoreMenu({ store, categories, products }) {
       const data = await res.json();
       setPaymentReturn((prev) => ({
         orderId: data.orderId,
+        paymentToken: prev?.paymentToken || paymentToken || null,
         paymentStatus: data.payment_status,
         total: data.total,
         order: prev?.order || null,
@@ -118,11 +123,32 @@ export default function StoreMenu({ store, categories, products }) {
   );
   const finalTotal =
     deliveryType === "delivery" ? subtotal + deliveryFee : subtotal;
+  const parsedChangeFor =
+    paymentMethod === "cash" && changeFor.trim() !== ""
+      ? Number(changeFor.replace(",", "."))
+      : null;
+  const changeAmount =
+    parsedChangeFor !== null &&
+    Number.isFinite(parsedChangeFor) &&
+    parsedChangeFor >= finalTotal
+      ? parsedChangeFor - finalTotal
+      : null;
 
   async function handlePlaceOrder(e) {
     e.preventDefault();
     if (!isOpen) {
       setOrderError("A loja está fechada no momento e não aceita pedidos.");
+      return;
+    }
+
+    if (
+      paymentMethod === "cash" &&
+      changeFor.trim() !== "" &&
+      (!Number.isFinite(parsedChangeFor) || parsedChangeFor < finalTotal)
+    ) {
+      setOrderError(
+        "O valor para troco deve ser maior ou igual ao total do pedido.",
+      );
       return;
     }
 
@@ -140,6 +166,10 @@ export default function StoreMenu({ store, categories, products }) {
           delivery_type: deliveryType,
           address: deliveryType === "delivery" ? address : null,
           payment_method: paymentMethod,
+          change_for:
+            paymentMethod === "cash" && changeFor.trim() !== ""
+              ? parsedChangeFor
+              : null,
           notes,
           items: cart.map((item) => ({
             product_id: item.product.id,
@@ -157,20 +187,26 @@ export default function StoreMenu({ store, categories, products }) {
       }
 
       if (paymentMethod === "online") {
+        const orderWithToken = {
+          ...data.order,
+          payment_token: data.payment_token || null,
+        };
         setCart([]);
         setIsCheckoutOpen(false);
-        setActiveOnlineOrder(data.order);
+        setActiveOnlineOrder(orderWithToken);
         setPaymentReturn({
           orderId: data.order.id,
+          paymentToken: data.payment_token || null,
           paymentStatus: "pending",
           total: Number(data.order.total),
-          order: data.order,
+          order: orderWithToken,
         });
         return;
       }
 
       setOrderSuccess(data.order);
       setCart([]);
+      setChangeFor("");
       setIsCheckoutOpen(false);
     } catch {
       setOrderError("Erro de conexão ao enviar pedido.");
@@ -312,7 +348,12 @@ export default function StoreMenu({ store, categories, products }) {
                 <button
                   type="button"
                   disabled={checkingPayment}
-                  onClick={() => verifyOrderPayment(paymentReturn.orderId)}
+                  onClick={() =>
+                    verifyOrderPayment(
+                      paymentReturn.orderId,
+                      paymentReturn.paymentToken,
+                    )
+                  }
                   className="px-3.5 py-1.5 bg-white hover:bg-stone-100 disabled:opacity-50 text-zinc-900 text-xs font-bold rounded-xl border border-stone-300 transition cursor-pointer"
                 >
                   {checkingPayment ? "Verificando..." : "Verificar pagamento"}
@@ -754,6 +795,44 @@ export default function StoreMenu({ store, categories, products }) {
                     </button>
                   ))}
                 </div>
+
+                {paymentMethod === "cash" && (
+                  <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200 space-y-2">
+                    <label className="block text-xs font-bold text-amber-950">
+                      Precisa de troco para quanto? (opcional)
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={changeFor}
+                        onChange={(e) => setChangeFor(e.target.value)}
+                        placeholder="Ex: 50,00"
+                        className="flex-1 min-w-[120px] px-3 py-2 bg-white border border-amber-300 rounded-xl text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#BC0202]/20 focus:border-[#BC0202]"
+                      />
+                      {[
+                        { label: "Sem troco", val: "" },
+                        { label: "R$ 50", val: "50" },
+                        { label: "R$ 100", val: "100" },
+                      ].map((chip) => (
+                        <button
+                          key={chip.label}
+                          type="button"
+                          onClick={() => setChangeFor(chip.val)}
+                          className="px-2.5 py-2 rounded-xl bg-white hover:bg-amber-100 border border-amber-300 text-xs font-bold text-amber-950 transition cursor-pointer"
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
+                    </div>
+                    {changeAmount !== null && (
+                      <p className="text-xs font-bold text-emerald-700">
+                        Troco a receber: R$ {formatMoney(changeAmount)}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -764,7 +843,7 @@ export default function StoreMenu({ store, categories, products }) {
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Ex: Tirar cebola, troco para R$ 50..."
+                  placeholder="Ex: Tirar cebola, ponto da carne..."
                   className="w-full px-3.5 py-2.5 bg-stone-50/70 focus:bg-white border border-stone-300 rounded-xl text-base sm:text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#BC0202]/25 focus:border-[#BC0202]"
                 />
               </div>

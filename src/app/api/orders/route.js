@@ -3,9 +3,22 @@ import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/auth";
 import { normalizeWhatsAppNumber, notifyOrderStatus } from "@/lib/whatsapp";
 import { resolveMercadoPagoToken } from "@/lib/mercadopago";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  signOrderAccessToken,
+} from "@/lib/security";
 
 export async function POST(request) {
   try {
+    const rl = checkRateLimit(request, {
+      key: "orders:create",
+      limit: 15,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimitResponse(rl.retryAfterSeconds);
+    }
     const {
       store_id,
       customer_name,
@@ -13,6 +26,7 @@ export async function POST(request) {
       delivery_type,
       address,
       payment_method,
+      change_for,
       notes,
       items,
     } = await request.json();
@@ -25,7 +39,8 @@ export async function POST(request) {
       !customer_phone.trim() ||
       !payment_method ||
       !Array.isArray(items) ||
-      items.length === 0
+      items.length === 0 ||
+      items.length > 50
     ) {
       return NextResponse.json(
         {
@@ -110,7 +125,12 @@ export async function POST(request) {
       );
       const quantity = Number(item.quantity);
 
-      if (!dbProduct || isNaN(quantity) || quantity <= 0) {
+      if (
+        !dbProduct ||
+        !Number.isInteger(quantity) ||
+        quantity < 1 ||
+        quantity > 99
+      ) {
         return NextResponse.json(
           {
             error:
@@ -150,6 +170,26 @@ export async function POST(request) {
       finalDeliveryType === "delivery" ? Number(store.delivery_fee || 0) : 0;
     const total = subtotal + deliveryFee;
 
+    let parsedChangeFor = null;
+    if (
+      payment_method === "cash" &&
+      change_for !== undefined &&
+      change_for !== null &&
+      String(change_for).trim() !== ""
+    ) {
+      const normalized = Number(String(change_for).replace(",", "."));
+      if (!Number.isFinite(normalized) || normalized < total) {
+        return NextResponse.json(
+          {
+            error:
+              "O valor para troco deve ser maior ou igual ao total do pedido.",
+          },
+          { status: 400 },
+        );
+      }
+      parsedChangeFor = normalized;
+    }
+
     const createdOrder = await prisma.orders.create({
       data: {
         store_id: store.id,
@@ -159,6 +199,7 @@ export async function POST(request) {
         address: finalDeliveryType === "delivery" ? address.trim() : null,
         payment_method,
         payment_status: isOnlinePayment ? "pending" : "unpaid",
+        change_for: parsedChangeFor,
         notes: notes ? notes.trim() : null,
         subtotal,
         delivery_fee: deliveryFee,
@@ -183,6 +224,7 @@ export async function POST(request) {
       {
         message: "Pedido realizado com sucesso!",
         order: createdOrder,
+        payment_token: signOrderAccessToken(createdOrder.id),
       },
       { status: 201 },
     );
@@ -206,7 +248,13 @@ export async function GET(request) {
 
     const store = await prisma.stores.findFirst({
       where: { user_id: decoded.userId },
-      select: { id: true, name: true, phone: true, slug: true },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        slug: true,
+        delivery_fee: true,
+      },
     });
 
     if (!store) {
