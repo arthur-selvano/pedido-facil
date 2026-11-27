@@ -52,13 +52,13 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4 rounded-lg">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-md p-8">
-        <a href="#" className="flex justify-center items-center mb-4">
+        <Link href="/" className="flex justify-center items-center mb-4">
           <img
             src="/logo.png"
             alt="Logo Pedido Fácil"
             className="h-auto w-70 object-contain"
           />
-        </a>
+        </Link>
         <h1 className="text-3xl font-black text-gray-800 text-center mb-2">
           Crie sua Conta
         </h1>

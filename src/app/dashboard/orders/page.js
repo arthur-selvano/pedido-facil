@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -45,6 +45,21 @@ function formatPrice(value) {
     .replace(".", ",");
 }
 
+async function requestOrders() {
+  const response = await fetch("/api/orders");
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return { error: "Não foi possível carregar os pedidos." };
+  }
+
+  const data = await response.json();
+  return { orders: data.orders || [] };
+}
+
 export default function OrdersPage() {
   const router = useRouter();
 
@@ -54,22 +69,21 @@ export default function OrdersPage() {
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
 
-  const fetchOrders = useCallback(async () => {
+  async function fetchOrders() {
     try {
-      const response = await fetch("/api/orders");
+      const result = await requestOrders();
 
-      if (response.status === 401) {
+      if (result.unauthorized) {
         router.push("/login");
         return;
       }
 
-      if (!response.ok) {
-        setError("Não foi possível carregar os pedidos.");
+      if (result.error) {
+        setError(result.error);
         return;
       }
 
-      const data = await response.json();
-      setOrders(data.orders || []);
+      setOrders(result.orders);
       setError("");
     } catch (err) {
       console.error("Erro ao buscar pedidos:", err);
@@ -77,13 +91,47 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }
 
   useEffect(() => {
-    fetchOrders();
-    const interval = setInterval(fetchOrders, 15000);
-    return () => clearInterval(interval);
-  }, [fetchOrders]);
+    let ignore = false;
+
+    async function loadOrders() {
+      try {
+        const result = await requestOrders();
+        if (ignore) return;
+
+        if (result.unauthorized) {
+          router.push("/login");
+          return;
+        }
+
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+
+        setOrders(result.orders);
+        setError("");
+      } catch (err) {
+        if (!ignore) {
+          console.error("Erro ao buscar pedidos:", err);
+          setError("Erro de conexão ao atualizar pedidos.");
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadOrders();
+    const interval = setInterval(loadOrders, 15000);
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
+  }, [router]);
 
   async function handleStatusChange(orderId, newStatus) {
     setUpdatingId(orderId);
