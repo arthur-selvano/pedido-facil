@@ -27,6 +27,14 @@ export default function DashboardPage() {
   const [togglingStore, setTogglingStore] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const [editingStore, setEditingStore] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editDeliveryFee, setEditDeliveryFee] = useState("");
+  const [savingStore, setSavingStore] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editSuccess, setEditSuccess] = useState("");
   // Computed client-side after load: reading the clock during render breaks
   // the Cache Components prerender of this route.
   const [todayKey, setTodayKey] = useState("");
@@ -137,6 +145,65 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Erro ao sair da conta:", err);
       setLoggingOut(false);
+    }
+  }
+
+  function handleStartEditStore() {
+    setEditName(store.name || "");
+    setEditPhone(store.phone || "");
+    setEditDeliveryFee(
+      store.delivery_fee !== null && store.delivery_fee !== undefined
+        ? Number(store.delivery_fee).toFixed(2)
+        : "0.00",
+    );
+    setEditError("");
+    setEditSuccess("");
+    setEditingStore(true);
+  }
+
+  function handleCancelEditStore() {
+    setEditError("");
+    setEditingStore(false);
+  }
+
+  async function handleUpdateStore(e) {
+    e.preventDefault();
+    setEditError("");
+    setEditSuccess("");
+    setSavingStore(true);
+
+    try {
+      const response = await fetch("/api/stores", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName,
+          phone: editPhone,
+          delivery_fee: editDeliveryFee === "" ? 0 : Number(editDeliveryFee),
+        }),
+      });
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setEditError(data.error || "Erro ao atualizar dados da loja.");
+        return;
+      }
+
+      setStore(data.store);
+      setEditingStore(false);
+      setEditSuccess("Dados da loja atualizados com sucesso!");
+      setTimeout(() => setEditSuccess(""), 3500);
+    } catch (err) {
+      console.error("Erro ao salvar dados da loja:", err);
+      setEditError("Erro de conexão com o servidor.");
+    } finally {
+      setSavingStore(false);
     }
   }
 
@@ -375,46 +442,144 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Resumo da Loja + Copiar Link */}
+        {/* Resumo da Loja + Editar Dados */}
         <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4">
-            Resumo da Loja
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 text-sm">
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <span className="text-xs text-gray-500 block">
-                  Link do Cardápio
-                </span>
-                <strong className="text-gray-800 truncate block">
-                  /{store.slug}
-                </strong>
-              </div>
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-800">
+              Resumo da Loja
+            </h2>
+            {!editingStore && (
               <button
                 type="button"
-                onClick={handleCopyLink}
-                className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold rounded-lg border border-gray-300 transition cursor-pointer shrink-0"
+                onClick={handleStartEditStore}
+                className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold rounded-xl border border-gray-300 transition cursor-pointer"
               >
-                {copiedLink ? "Copiado!" : "Copiar Link"}
+                Editar Dados
               </button>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-              <span className="text-xs text-gray-500 block">WhatsApp</span>
-              <strong className="text-gray-800">
-                {store.phone || "Não informado"}
-              </strong>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-              <span className="text-xs text-gray-500 block">
-                Taxa de Entrega
-              </span>
-              <strong className="text-gray-800">
-                R$ {formatPrice(store.delivery_fee)}
-              </strong>
-            </div>
+            )}
           </div>
+
+          {editSuccess && (
+            <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
+              {editSuccess}
+            </div>
+          )}
+
+          {editingStore ? (
+            <form onSubmit={handleUpdateStore} className="space-y-4">
+              {editError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
+                  {editError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Nome da Loja
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Ex: Burger do Arthur"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    WhatsApp da Loja
+                  </label>
+                  <input
+                    type="tel"
+                    maxLength={20}
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="Ex: 34999999999"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Taxa de Entrega (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editDeliveryFee}
+                    onChange={(e) => setEditDeliveryFee(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <span className="text-xs text-gray-500">
+                  Link fixo do cardápio: <strong>/{store.slug}</strong>
+                </span>
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={handleCancelEditStore}
+                    disabled={savingStore}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs sm:text-sm font-bold rounded-xl border border-gray-300 transition cursor-pointer disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingStore}
+                    className="px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+                  >
+                    {savingStore ? "Salvando..." : "Salvar Alterações"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 text-sm">
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-xs text-gray-500 block">
+                    Link do Cardápio
+                  </span>
+                  <strong className="text-gray-800 truncate block">
+                    /{store.slug}
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold rounded-lg border border-gray-300 transition cursor-pointer shrink-0"
+                >
+                  {copiedLink ? "Copiado!" : "Copiar Link"}
+                </button>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                <span className="text-xs text-gray-500 block">WhatsApp</span>
+                <strong className="text-gray-800">
+                  {store.phone || "Não informado"}
+                </strong>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                <span className="text-xs text-gray-500 block">
+                  Taxa de Entrega
+                </span>
+                <strong className="text-gray-800">
+                  R$ {formatPrice(store.delivery_fee)}
+                </strong>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Atalho Pedidos e Cozinha */}

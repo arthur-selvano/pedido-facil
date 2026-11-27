@@ -27,6 +27,21 @@ export async function POST(request) {
       );
     }
 
+    if (cleanName.length > 100) {
+      return NextResponse.json(
+        { error: "O nome da loja deve ter no máximo 100 caracteres." },
+        { status: 400 },
+      );
+    }
+
+    const cleanPhone = typeof phone === "string" ? phone.trim() : "";
+    if (cleanPhone.length > 20) {
+      return NextResponse.json(
+        { error: "O WhatsApp deve ter no máximo 20 caracteres." },
+        { status: 400 },
+      );
+    }
+
     if (!SLUG_REGEX.test(cleanSlug)) {
       return NextResponse.json(
         {
@@ -76,7 +91,7 @@ export async function POST(request) {
         user_id: decoded.userId,
         name: cleanName,
         slug: cleanSlug,
-        phone: phone || null,
+        phone: cleanPhone || null,
         delivery_fee: delivery_fee ? Number(delivery_fee) : 0,
       },
     });
@@ -129,11 +144,98 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const { is_open } = await request.json();
-
-    if (typeof is_open !== "boolean") {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: "O status da loja deve ser verdadeiro ou falso." },
+        { error: "Corpo da requisição inválido." },
+        { status: 400 },
+      );
+    }
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        { error: "Corpo da requisição inválido." },
+        { status: 400 },
+      );
+    }
+
+    const updateData = {};
+
+    if (body.is_open !== undefined) {
+      if (typeof body.is_open !== "boolean") {
+        return NextResponse.json(
+          { error: "O status da loja deve ser verdadeiro ou falso." },
+          { status: 400 },
+        );
+      }
+      updateData.is_open = body.is_open;
+    }
+
+    if (body.name !== undefined) {
+      const cleanName = typeof body.name === "string" ? body.name.trim() : "";
+      if (!cleanName) {
+        return NextResponse.json(
+          { error: "O nome da loja é obrigatório." },
+          { status: 400 },
+        );
+      }
+      if (cleanName.length > 100) {
+        return NextResponse.json(
+          { error: "O nome da loja deve ter no máximo 100 caracteres." },
+          { status: 400 },
+        );
+      }
+      updateData.name = cleanName;
+    }
+
+    if (body.phone !== undefined) {
+      if (body.phone === null || body.phone === "") {
+        updateData.phone = null;
+      } else if (typeof body.phone === "string") {
+        const cleanPhone = body.phone.trim();
+        if (cleanPhone.length > 20) {
+          return NextResponse.json(
+            { error: "O WhatsApp deve ter no máximo 20 caracteres." },
+            { status: 400 },
+          );
+        }
+        updateData.phone = cleanPhone || null;
+      } else {
+        return NextResponse.json(
+          { error: "Informe um WhatsApp válido." },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (body.delivery_fee !== undefined) {
+      const numericFee =
+        body.delivery_fee === "" || body.delivery_fee === null
+          ? 0
+          : Number(body.delivery_fee);
+
+      if (
+        typeof body.delivery_fee === "boolean" ||
+        !Number.isFinite(numericFee) ||
+        numericFee < 0 ||
+        numericFee >= 100000000
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Informe uma taxa de entrega válida (maior ou igual a zero).",
+          },
+          { status: 400 },
+        );
+      }
+      updateData.delivery_fee = numericFee;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json(
+        { error: "Nenhum dado válido enviado para atualização." },
         { status: 400 },
       );
     }
@@ -152,15 +254,22 @@ export async function PATCH(request) {
 
     const updatedStore = await prisma.stores.update({
       where: { id: existingStore.id },
-      data: { is_open },
+      data: updateData,
     });
 
+    const isOnlyToggle =
+      Object.keys(updateData).length === 1 && updateData.is_open !== undefined;
+
     return NextResponse.json({
-      message: is_open ? "Loja aberta!" : "Loja fechada!",
+      message: isOnlyToggle
+        ? updatedStore.is_open
+          ? "Loja aberta!"
+          : "Loja fechada!"
+        : "Dados da loja atualizados com sucesso!",
       store: updatedStore,
     });
   } catch (error) {
-    console.error("Erro ao atualizar status da loja:", error);
+    console.error("Erro ao atualizar dados da loja:", error);
     return NextResponse.json(
       { error: "Erro interno no servidor." },
       { status: 500 },
