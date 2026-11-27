@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import PrintReceiptModal from "@/app/components/PrintReceiptModal";
+import {
+  loadPrinterPrefs,
+  savePrinterPrefs,
+  printThermalReceipt,
+} from "@/lib/thermalPrint";
 
 const STATUS_CONFIG = {
   pending: {
@@ -82,17 +88,34 @@ async function requestOrders() {
   }
 
   const data = await response.json();
-  return { orders: data.orders || [] };
+  return { orders: data.orders || [], store: data.store || null };
 }
 
 export default function OrdersPage() {
   const router = useRouter();
 
   const [orders, setOrders] = useState([]);
+  const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
+  const [printerPrefs, setPrinterPrefs] = useState(() => loadPrinterPrefs());
+  const [previewOrder, setPreviewOrder] = useState(null);
+
+  function handleChangePrinterPrefs(nextPrefs) {
+    setPrinterPrefs(nextPrefs);
+    savePrinterPrefs(nextPrefs);
+  }
+
+  function handleQuickPrint(order) {
+    printThermalReceipt({
+      order,
+      store,
+      paperWidth: printerPrefs.paperWidth,
+      copyMode: printerPrefs.copyMode,
+    });
+  }
 
   async function fetchOrders() {
     try {
@@ -109,6 +132,7 @@ export default function OrdersPage() {
       }
 
       setOrders(result.orders);
+      if (result.store) setStore(result.store);
       setError("");
     } catch (err) {
       console.error("Erro ao buscar pedidos:", err);
@@ -137,6 +161,7 @@ export default function OrdersPage() {
         }
 
         setOrders(result.orders);
+        if (result.store) setStore(result.store);
         setError("");
       } catch (err) {
         if (!ignore) {
@@ -173,11 +198,21 @@ export default function OrdersPage() {
         return;
       }
 
+      const targetOrder = orders.find((o) => o.id === orderId);
+
       setOrders((prev) =>
         prev.map((order) =>
           order.id === orderId ? { ...order, status: newStatus } : order,
         ),
       );
+
+      if (
+        newStatus === "preparing" &&
+        printerPrefs.autoPrintOnAccept &&
+        targetOrder
+      ) {
+        handleQuickPrint({ ...targetOrder, status: newStatus });
+      }
     } catch (err) {
       console.error("Erro ao alterar status:", err);
       alert("Erro de conexão com o servidor.");
@@ -277,29 +312,88 @@ export default function OrdersPage() {
           </div>
         )}
 
-        {/* Abas Segmentadas */}
-        <div className="inline-flex flex-wrap items-center gap-1.5 p-1.5 bg-white rounded-2xl border border-stone-200/80 shadow-2xs">
-          <button
-            onClick={() => setFilter("active")}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-              filter === "active"
-                ? "bg-[#BC0202] text-white shadow-xs"
-                : "text-zinc-600 hover:text-zinc-900 hover:bg-stone-50"
-            }`}
-          >
-            Em Andamento ({activeOrders.length})
-          </button>
+        {/* Abas Segmentadas + Configuração Rápida de Impressão Térmica */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex flex-wrap items-center gap-1.5 p-1.5 bg-white rounded-2xl border border-stone-200/80 shadow-2xs">
+            <button
+              onClick={() => setFilter("active")}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+                filter === "active"
+                  ? "bg-[#BC0202] text-white shadow-xs"
+                  : "text-zinc-600 hover:text-zinc-900 hover:bg-stone-50"
+              }`}
+            >
+              Em Andamento ({activeOrders.length})
+            </button>
 
-          <button
-            onClick={() => setFilter("finished")}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-              filter === "finished"
-                ? "bg-[#BC0202] text-white shadow-xs"
-                : "text-zinc-600 hover:text-zinc-900 hover:bg-stone-50"
-            }`}
-          >
-            Concluídos / Cancelados ({finishedOrders.length})
-          </button>
+            <button
+              onClick={() => setFilter("finished")}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+                filter === "finished"
+                  ? "bg-[#BC0202] text-white shadow-xs"
+                  : "text-zinc-600 hover:text-zinc-900 hover:bg-stone-50"
+              }`}
+            >
+              Concluídos / Cancelados ({finishedOrders.length})
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 bg-white px-3.5 py-2 rounded-2xl border border-stone-200/80 shadow-2xs text-xs">
+            <span className="font-extrabold text-zinc-700">Impressora:</span>
+
+            <div className="inline-flex rounded-lg border border-stone-200 overflow-hidden">
+              {["58mm", "80mm"].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() =>
+                    handleChangePrinterPrefs({
+                      ...printerPrefs,
+                      paperWidth: size,
+                    })
+                  }
+                  className={`px-2.5 py-1 font-bold transition cursor-pointer ${
+                    printerPrefs.paperWidth === size
+                      ? "bg-zinc-900 text-white"
+                      : "bg-white text-zinc-600 hover:bg-stone-100"
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+
+            <select
+              aria-label="Tipo de via para impressão"
+              value={printerPrefs.copyMode}
+              onChange={(e) =>
+                handleChangePrinterPrefs({
+                  ...printerPrefs,
+                  copyMode: e.target.value,
+                })
+              }
+              className="px-2.5 py-1 rounded-lg border border-stone-200 bg-stone-50 text-zinc-800 font-bold cursor-pointer focus:outline-none focus:border-[#BC0202]"
+            >
+              <option value="full">Via Completa</option>
+              <option value="kitchen">Via Cozinha</option>
+              <option value="both">Ambas (2 vias)</option>
+            </select>
+
+            <label className="inline-flex items-center gap-1.5 text-zinc-700 font-semibold cursor-pointer select-none pl-1">
+              <input
+                type="checkbox"
+                checked={printerPrefs.autoPrintOnAccept}
+                onChange={(e) =>
+                  handleChangePrinterPrefs({
+                    ...printerPrefs,
+                    autoPrintOnAccept: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 accent-[#BC0202] rounded cursor-pointer"
+              />
+              Auto-imprimir ao aceitar
+            </label>
+          </div>
         </div>
 
         {displayedOrders.length === 0 ? (
@@ -499,6 +593,37 @@ export default function OrdersPage() {
                         {isUpdating ? "Salvando..." : "Confirmar Entrega"}
                       </button>
                     )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleQuickPrint(order)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-stone-100 text-zinc-800 text-xs font-bold rounded-xl border border-stone-200 transition cursor-pointer"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-3.5 h-3.5 text-zinc-600"
+                          aria-hidden="true"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M5 2.75C5 1.784 5.784 1 6.75 1h6.5c.966 0 1.75.784 1.75 1.75v3.552c.377.046.752.097 1.126.153A2.212 2.212 0 0 1 18 8.653v4.097A2.25 2.25 0 0 1 15.75 15h-.241l.305 1.984c.117.76-.47 1.441-1.239 1.441H5.425c-.77 0-1.356-.681-1.239-1.441L4.491 15H4.25A2.25 2.25 0 0 1 2 12.75V8.653c0-1.082.775-2.034 1.874-2.198.374-.056.75-.107 1.126-.153V2.75Zm8.5 3.395a49.11 49.11 0 0 0-7 0V2.75a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v3.395ZM6.292 13.5l-.55 3.575h8.516l-.55-3.575H6.292Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                        Imprimir Comanda
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewOrder(order)}
+                        className="py-2 px-3 bg-white hover:bg-stone-100 text-zinc-600 hover:text-zinc-900 text-xs font-bold rounded-xl border border-stone-200 transition cursor-pointer"
+                        title="Pré-visualizar comanda térmica"
+                      >
+                        Visualizar
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -506,6 +631,14 @@ export default function OrdersPage() {
           </div>
         )}
       </main>
+
+      <PrintReceiptModal
+        order={previewOrder}
+        store={store}
+        prefs={printerPrefs}
+        onChangePrefs={handleChangePrinterPrefs}
+        onClose={() => setPreviewOrder(null)}
+      />
     </div>
   );
 }

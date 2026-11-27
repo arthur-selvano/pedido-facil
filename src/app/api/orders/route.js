@@ -206,7 +206,7 @@ export async function GET(request) {
 
     const store = await prisma.stores.findFirst({
       where: { user_id: decoded.userId },
-      select: { id: true },
+      select: { id: true, name: true, phone: true, slug: true },
     });
 
     if (!store) {
@@ -229,7 +229,7 @@ export async function GET(request) {
       items: order_items,
     }));
 
-    return NextResponse.json({ orders: ordersWithItems });
+    return NextResponse.json({ orders: ordersWithItems, store });
   } catch (error) {
     console.error("Erro ao listar pedidos:", error);
     return NextResponse.json(
