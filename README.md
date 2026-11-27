@@ -56,6 +56,7 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
   - Divisão visual por abas: **Em Andamento** vs. **Concluídos / Cancelados**.
   - Identificação destacada de **Entrega** (com endereço completo) ou **Retirada no Balcão**.
   - Ações de transição de status conforme o fluxo da cozinha (`Aceitar e Preparar`, `Saiu para Entrega`, `Confirmar Entrega` ou `Cancelar`).
+- **Notificações automáticas no WhatsApp:** o cliente recebe uma mensagem no número informado no checkout quando o pedido é criado e a cada mudança de status feita no painel (via [Evolution API](https://github.com/EvolutionAPI/evolution-api)).
 
 ### 📱 Para o Cliente Final (Cardápio Público)
 
@@ -109,13 +110,15 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 
 ### Ciclo de Vida do Pedido
 
-| Status             | Rótulo na Interface | Próximas Ações Disponíveis            |
-| ------------------ | ------------------- | ------------------------------------- |
-| `pending`          | Pendente            | Aceitar e Preparar · Cancelar         |
-| `preparing`        | Em Preparo          | Saiu para Entrega / Concluir Retirada |
-| `out_for_delivery` | Saiu p/ Entrega     | Confirmar Entrega                     |
-| `delivered`        | Concluído           | —                                     |
-| `canceled`         | Cancelado           | —                                     |
+| Status             | Rótulo na Interface | Próximas Ações Disponíveis            | Mensagem no WhatsApp do cliente            |
+| ------------------ | ------------------- | ------------------------------------- | ------------------------------------------ |
+| `pending`          | Pendente            | Aceitar e Preparar · Cancelar         | Pedido recebido (itens, total e tipo)      |
+| `preparing`        | Em Preparo          | Saiu para Entrega / Concluir Retirada | Pedido aceito e em preparo                 |
+| `out_for_delivery` | Saiu p/ Entrega     | Confirmar Entrega                     | Pedido saiu para entrega (com endereço)    |
+| `delivered`        | Concluído           | —                                     | Pedido entregue / retirado + agradecimento |
+| `canceled`         | Cancelado           | —                                     | Pedido cancelado + telefone da loja        |
+
+> As mensagens são enviadas em segundo plano (`after()` do Next.js): uma falha no WhatsApp nunca bloqueia nem desfaz o pedido. A mensagem só é disparada quando o status realmente muda, evitando duplicidade.
 
 ---
 
@@ -137,8 +140,8 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 
 ```text
 .
-├── .env.example               # Modelo documentado das variáveis DATABASE_URL e JWT_SECRET
-├── docker-compose.yml         # Definição do serviço PostgreSQL para desenvolvimento
+├── .env.example               # Modelo documentado das variáveis (banco, JWT e WhatsApp/Evolution API)
+├── docker-compose.yml         # Serviços de desenvolvimento: PostgreSQL e Evolution API (WhatsApp)
 ├── init.sql                   # Script DDL inicial com tabelas e relacionamentos
 ├── prisma.config.ts           # Configuração do Prisma ORM 7 (compatível com dev e produção sem dotenv)
 ├── prisma/
@@ -148,7 +151,8 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 │   ├── proxy.js               # Proxy (Next.js 16) de proteção e validação JWT em /dashboard/*
 │   ├── lib/
 │   │   ├── auth.js            # Assinatura e verificação consistente do JWT (validação de JWT_SECRET)
-│   │   └── db.js              # Inicialização do PrismaClient singleton com adapter-pg
+│   │   ├── db.js              # Inicialização do PrismaClient singleton com adapter-pg
+│   │   └── whatsapp.js        # Mensagens por status e envio automático via Evolution API
 │   ├── generated/
 │   │   └── prisma/            # Saída do cliente tipado gerado pelo Prisma (ignorado no Git)
 │   └── app/
@@ -344,7 +348,29 @@ DATABASE_URL="postgresql://admin:admin123@localhost:5432/pedido_facil?schema=pub
 
 # Chave secreta para assinatura dos tokens JWT
 JWT_SECRET="troque-por-uma-chave-secreta-forte-e-aleatoria"
+
+# WhatsApp (Evolution API) — notificações automáticas de status do pedido
+EVOLUTION_API_URL="http://localhost:8080"
+EVOLUTION_API_KEY="troque-por-uma-chave-forte"
+EVOLUTION_INSTANCE="pedido-facil"
 ```
+
+> Se as variáveis `EVOLUTION_*` ficarem vazias, o sistema funciona normalmente, apenas sem enviar mensagens no WhatsApp.
+
+---
+
+### Passo 2.1: Conectar o WhatsApp da Loja
+
+O `docker-compose.yml` já sobe a Evolution API na porta `8080`, usando o valor de `EVOLUTION_API_KEY` do `.env` como chave de autenticação (rode `docker compose up -d` novamente após editar o `.env`).
+
+Não é preciso abrir o painel da Evolution API manualmente:
+1. Ao criar a loja pela primeira vez em `/dashboard`, o sistema já exibe o **Passo 2: Conecte seu WhatsApp** com o QR Code pronto na tela.
+2. Também é possível conectar, gerar um novo QR Code ou desconectar a qualquer momento no cartão **WhatsApp Automático** da Visão Geral do painel (`/dashboard`).
+3. Escaneie o QR Code no celular da loja (*WhatsApp ➔ Aparelhos conectados ➔ Conectar aparelho*). Cada loja ganha automaticamente sua própria instância isolada (`loja-<id>`).
+
+> **QR Code não aparece?** Versões antigas da Evolution API param de gerar QR quando o WhatsApp Web é atualizado. Atualize a tag da imagem no `docker-compose.yml` e rode `docker compose pull evolution-api && docker compose up -d evolution-api`.
+
+Pronto: a partir daí, cada pedido criado e cada mudança de status no painel envia automaticamente uma mensagem para o WhatsApp informado pelo cliente no checkout. Telefones sem DDI são tratados como brasileiros (`55` + DDD + número).
 
 ---
 
@@ -393,6 +419,7 @@ Abra o navegador em: [http://localhost:3000](http://localhost:3000).
 1. Configure as variáveis de ambiente no provedor de hospedagem (baseadas no [`.env.example`](.env.example)):
    - `DATABASE_URL` — string de conexão do PostgreSQL de produção (ex.: com `?sslmode=require`).
    - `JWT_SECRET` — chave secreta longa e aleatória (ex.: `openssl rand -base64 48`).
+   - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` e `EVOLUTION_INSTANCE` — dados da Evolution API em produção (hospedada em um servidor/VPS com Docker).
 2. Sincronize o schema do Prisma no banco de produção:
    ```bash
    DATABASE_URL="postgresql://USUARIO:SENHA@HOST:PORTA/BANCO?sslmode=require" npx prisma db push

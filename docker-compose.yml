@@ -13,5 +13,30 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
+  # Gateway de WhatsApp usado para notificar os clientes sobre o status do pedido.
+  # Painel de gerenciamento: http://localhost:8080/manager
+  # Mantenha a imagem atualizada: versões antigas param de gerar QR Code quando o WhatsApp Web muda.
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.8
+    container_name: pedido_facil_whatsapp
+    restart: always
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-change-me-evolution-api-key}
+      DATABASE_PROVIDER: postgresql
+      # Usa o mesmo Postgres, mas em um schema separado para não misturar com as tabelas do app
+      DATABASE_CONNECTION_URI: postgresql://admin:admin123@postgres:5432/pedido_facil?schema=evolution_api
+      DATABASE_CONNECTION_CLIENT_NAME: pedido_facil
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      LOG_LEVEL: ERROR,WARN,INFO
+    volumes:
+      - evolution_instances:/evolution/instances
+
 volumes:
   postgres_data:
+  evolution_instances:
