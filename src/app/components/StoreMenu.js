@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import OnlinePaymentModal from "./OnlinePaymentModal";
 
 function formatMoney(value) {
   return Number(value || 0)
@@ -29,25 +30,25 @@ export default function StoreMenu({ store, categories, products }) {
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [orderSuccess, setOrderSuccess] = useState(null);
+  const [activeOnlineOrder, setActiveOnlineOrder] = useState(null);
   const [paymentReturn, setPaymentReturn] = useState(null);
   const [checkingPayment, setCheckingPayment] = useState(false);
 
-  const verifyOrderPayment = useCallback(async (orderId, paymentId = "") => {
+  const verifyOrderPayment = useCallback(async (orderId) => {
     setCheckingPayment(true);
     try {
       const qs = new URLSearchParams({ order_id: String(orderId) });
-      if (paymentId) qs.set("payment_id", String(paymentId));
       const res = await fetch(
         `/api/payments/mercadopago/status?${qs.toString()}`,
       );
       if (!res.ok) return;
       const data = await res.json();
-      setPaymentReturn({
+      setPaymentReturn((prev) => ({
         orderId: data.orderId,
         paymentStatus: data.payment_status,
         total: data.total,
-        paymentUrl: data.payment_url,
-      });
+        order: prev?.order || null,
+      }));
     } catch {
       // Mantém o estado atual se falhar a consulta
     } finally {
@@ -55,59 +56,13 @@ export default function StoreMenu({ store, categories, products }) {
     }
   }, []);
 
-  // Detecta o retorno do Mercado Pago (?order=...&mp_status=...&payment_id=...)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const orderIdParam = params.get("order");
-    const mpStatus = params.get("mp_status");
-    const paymentId =
-      params.get("payment_id") || params.get("collection_id") || "";
-
-    if (!orderIdParam) return;
-
-    // Limpa os parâmetros da URL para evitar reprocessar ao recarregar
-    window.history.replaceState({}, "", window.location.pathname);
-
-    let ignore = false;
-
-    async function syncReturnStatus() {
-      try {
-        const qs = new URLSearchParams({ order_id: String(orderIdParam) });
-        if (paymentId) qs.set("payment_id", String(paymentId));
-        const res = await fetch(
-          `/api/payments/mercadopago/status?${qs.toString()}`,
-        );
-        if (ignore) return;
-
-        if (res.ok) {
-          const data = await res.json();
-          setPaymentReturn({
-            orderId: data.orderId,
-            paymentStatus: data.payment_status,
-            total: data.total,
-            paymentUrl: data.payment_url,
-          });
-          return;
-        }
-      } catch {
-        // Fallback para o status vindo na URL
-      }
-
-      if (!ignore) {
-        setPaymentReturn({
-          orderId: Number(orderIdParam),
-          paymentStatus: mpStatus === "failure" ? "failed" : "pending",
-          total: null,
-          paymentUrl: null,
-        });
-      }
-    }
-
-    syncReturnStatus();
-
-    return () => {
-      ignore = true;
-    };
+  const handleOnlinePaid = useCallback((orderId) => {
+    setPaymentReturn((prev) => ({
+      orderId,
+      paymentStatus: "paid",
+      total: prev?.total ?? null,
+      order: prev?.order || null,
+    }));
   }, []);
 
   const isOpen = store.is_open !== false;
@@ -201,10 +156,16 @@ export default function StoreMenu({ store, categories, products }) {
         return;
       }
 
-      if (data.payment_url) {
+      if (paymentMethod === "online") {
         setCart([]);
         setIsCheckoutOpen(false);
-        window.location.href = data.payment_url;
+        setActiveOnlineOrder(data.order);
+        setPaymentReturn({
+          orderId: data.order.id,
+          paymentStatus: "pending",
+          total: Number(data.order.total),
+          order: data.order,
+        });
         return;
       }
 
@@ -335,15 +296,16 @@ export default function StoreMenu({ store, categories, products }) {
 
             <div className="flex flex-wrap items-center gap-2 mt-3.5">
               {paymentReturn.paymentStatus !== "paid" &&
-                paymentReturn.paymentUrl && (
-                  <a
-                    href={paymentReturn.paymentUrl}
-                    className="px-4 py-1.5 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] text-white text-xs font-bold rounded-xl transition shadow-xs"
+                paymentReturn.order && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveOnlineOrder(paymentReturn.order)}
+                    className="px-4 py-1.5 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] text-white text-xs font-bold rounded-xl transition shadow-xs cursor-pointer"
                   >
                     {paymentReturn.paymentStatus === "failed"
                       ? "Tentar pagar novamente"
-                      : "Abrir tela de pagamento"}
-                  </a>
+                      : "Abrir pagamento"}
+                  </button>
                 )}
 
               {paymentReturn.paymentStatus !== "paid" && (
@@ -746,10 +708,11 @@ export default function StoreMenu({ store, categories, products }) {
                   >
                     <div>
                       <span className="block text-xs sm:text-sm font-extrabold">
-                        Pagar Online Agora (PIX ou Cartão)
+                        Pagar Online Agora (
+                        {store.mp_public_key ? "PIX ou Cartão" : "PIX"})
                       </span>
                       <span className="block text-[11px] text-zinc-500 mt-0.5">
-                        Confirmação automática via Mercado Pago
+                        Direto aqui no site, sem sair da página
                       </span>
                     </div>
                     <span
@@ -816,12 +779,23 @@ export default function StoreMenu({ store, categories, products }) {
                     ? "Preparando pagamento..."
                     : "Enviando pedido..."
                   : paymentMethod === "online"
-                    ? `Ir para Pagamento • R$ ${formatMoney(finalTotal)}`
+                    ? `Pagar Agora • R$ ${formatMoney(finalTotal)}`
                     : `Confirmar Pedido • R$ ${formatMoney(finalTotal)}`}
               </button>
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal de Pagamento Transparente no Site (API Orders) */}
+      {activeOnlineOrder && (
+        <OnlinePaymentModal
+          order={activeOnlineOrder}
+          storeName={store.name}
+          mpPublicKey={store.mp_public_key}
+          onPaid={handleOnlinePaid}
+          onClose={() => setActiveOnlineOrder(null)}
+        />
       )}
     </div>
   );

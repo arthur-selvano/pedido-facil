@@ -22,6 +22,7 @@ async function getAuthenticatedStore(request) {
       id: true,
       name: true,
       mp_access_token: true,
+      mp_public_key: true,
     },
   });
 
@@ -43,14 +44,22 @@ export async function GET(request) {
     if (errorResponse) return errorResponse;
 
     const hasStoreToken = Boolean(store.mp_access_token?.trim());
+    const hasStorePublicKey = Boolean(store.mp_public_key?.trim());
     const hasPlatformFallback = Boolean(
       process.env.MERCADOPAGO_ACCESS_TOKEN?.trim(),
+    );
+    const hasPlatformPublicKey = Boolean(
+      process.env.MERCADOPAGO_PUBLIC_KEY?.trim() ||
+        process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY?.trim(),
     );
 
     return NextResponse.json({
       configured: hasStoreToken,
+      hasPublicKey: hasStorePublicKey || hasPlatformPublicKey,
+      hasStorePublicKey,
       hasPlatformFallback,
-      isSandbox: hasStoreToken && store.mp_access_token.trim().startsWith("TEST-"),
+      isSandbox:
+        hasStoreToken && store.mp_access_token.trim().startsWith("TEST-"),
     });
   } catch (error) {
     console.error("Erro ao consultar configuração do Mercado Pago:", error);
@@ -69,6 +78,8 @@ export async function POST(request) {
     const body = await request.json().catch(() => null);
     const accessToken =
       typeof body?.access_token === "string" ? body.access_token.trim() : "";
+    const publicKey =
+      typeof body?.public_key === "string" ? body.public_key.trim() : "";
 
     if (!accessToken) {
       return NextResponse.json(
@@ -87,11 +98,20 @@ export async function POST(request) {
 
     await prisma.stores.update({
       where: { id: store.id },
-      data: { mp_access_token: accessToken },
+      data: {
+        mp_access_token: accessToken,
+        mp_public_key: publicKey || null,
+      },
     });
 
     return NextResponse.json({
       configured: true,
+      hasPublicKey: Boolean(
+        publicKey ||
+          process.env.MERCADOPAGO_PUBLIC_KEY?.trim() ||
+          process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY?.trim(),
+      ),
+      hasStorePublicKey: Boolean(publicKey),
       isSandbox: validation.isSandbox,
       account: validation.account,
       message: "Mercado Pago conectado com sucesso!",
@@ -115,11 +135,16 @@ export async function DELETE(request) {
 
     await prisma.stores.update({
       where: { id: store.id },
-      data: { mp_access_token: null },
+      data: {
+        mp_access_token: null,
+        mp_public_key: null,
+      },
     });
 
     return NextResponse.json({
       configured: false,
+      hasPublicKey: false,
+      hasStorePublicKey: false,
       message: "Mercado Pago desconectado com sucesso.",
     });
   } catch (error) {

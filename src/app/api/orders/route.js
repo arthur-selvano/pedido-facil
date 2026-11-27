@@ -2,11 +2,7 @@ import { NextResponse, after } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/auth";
 import { normalizeWhatsAppNumber, notifyOrderStatus } from "@/lib/whatsapp";
-import {
-  resolveMercadoPagoToken,
-  createCheckoutPreference,
-  resolveAppUrl,
-} from "@/lib/mercadopago";
+import { resolveMercadoPagoToken } from "@/lib/mercadopago";
 
 export async function POST(request) {
   try {
@@ -154,7 +150,7 @@ export async function POST(request) {
       finalDeliveryType === "delivery" ? Number(store.delivery_fee || 0) : 0;
     const total = subtotal + deliveryFee;
 
-    let createdOrder = await prisma.orders.create({
+    const createdOrder = await prisma.orders.create({
       data: {
         store_id: store.id,
         customer_name: customer_name.trim(),
@@ -173,43 +169,6 @@ export async function POST(request) {
       },
     });
 
-    let paymentUrl = null;
-
-    if (isOnlinePayment) {
-      try {
-        const preference = await createCheckoutPreference({
-          accessToken: mpAccessToken,
-          order: createdOrder,
-          store,
-          items: validatedItems,
-          appUrl: resolveAppUrl(request),
-        });
-
-        paymentUrl = preference.initPoint;
-        createdOrder = await prisma.orders.update({
-          where: { id: createdOrder.id },
-          data: { payment_url: paymentUrl },
-        });
-      } catch (mpError) {
-        console.error(
-          `[mercadopago] Falha ao criar checkout para pedido #${createdOrder.id}:`,
-          mpError,
-        );
-        // Remove o pedido órfão caso o gateway falhe ao gerar o link de pagamento
-        await prisma.orders
-          .delete({ where: { id: createdOrder.id } })
-          .catch(() => null);
-
-        return NextResponse.json(
-          {
-            error:
-              "Não foi possível iniciar o pagamento online agora. Tente novamente ou escolha pagar na entrega.",
-          },
-          { status: 502 },
-        );
-      }
-    }
-
     // Envia a confirmação no WhatsApp do cliente sem atrasar a resposta.
     after(() =>
       notifyOrderStatus({
@@ -224,7 +183,6 @@ export async function POST(request) {
       {
         message: "Pedido realizado com sucesso!",
         order: createdOrder,
-        payment_url: paymentUrl,
       },
       { status: 201 },
     );

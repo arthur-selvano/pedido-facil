@@ -1,9 +1,13 @@
+import crypto from "node:crypto";
+
 /**
- * Integração com Mercado Pago Checkout Pro (PIX e Cartão online).
+ * Integração com Mercado Pago Orders API (/v1/orders) para Checkout Transparente
+ * (PIX e Cartão direto no site, sem redirecionamento).
  *
- * Cada loja pode configurar seu próprio Access Token no painel (/dashboard),
- * salvo em `stores.mp_access_token`. Opcionalmente, `MERCADOPAGO_ACCESS_TOKEN`
- * no `.env` funciona como fallback global da plataforma.
+ * Cada loja pode configurar seu próprio Access Token e Public Key no painel (/dashboard),
+ * salvos em `stores.mp_access_token` e `stores.mp_public_key`.
+ * Opcionalmente, `MERCADOPAGO_ACCESS_TOKEN` e `MERCADOPAGO_PUBLIC_KEY`
+ * no `.env` funcionam como fallback global da plataforma.
  */
 
 const MP_API_BASE = "https://api.mercadopago.com";
@@ -17,50 +21,37 @@ export function resolveMercadoPagoToken(store) {
   return fallbackToken || null;
 }
 
+export function resolveMercadoPagoPublicKey(store) {
+  const storeKey = store?.mp_public_key?.trim();
+  if (storeKey) return storeKey;
+
+  const fallbackKey =
+    process.env.MERCADOPAGO_PUBLIC_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY?.trim();
+  return fallbackKey || null;
+}
+
 export function hasOnlinePaymentEnabled(store) {
   return resolveMercadoPagoToken(store) !== null;
 }
 
-export function isPublicHttpsUrl(urlString) {
-  if (!urlString) return false;
-  try {
-    const parsed = new URL(urlString);
-    if (parsed.protocol !== "https:") return false;
-    const host = parsed.hostname.toLowerCase();
-    return (
-      host !== "localhost" &&
-      host !== "127.0.0.1" &&
-      host !== "0.0.0.0" &&
-      !host.endsWith(".local")
-    );
-  } catch {
-    return false;
-  }
-}
-
-export function resolveAppUrl(request) {
-  const envUrl = process.env.APP_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (envUrl) {
-    return envUrl.replace(/\/+$/, "");
-  }
-
-  try {
-    const url = new URL(request.url);
-    return url.origin.replace(/\/+$/, "");
-  } catch {
-    return "http://localhost:3000";
-  }
-}
-
 /**
- * Mapeia o status retornado pela API do Mercado Pago para o status interno do pedido.
+ * Mapeia o status de uma Order (/v1/orders) do Mercado Pago para o status interno do pedido.
  */
-export function mapMercadoPagoStatus(mpStatus) {
-  switch (mpStatus) {
+export function mapMercadoPagoOrderStatus(mpOrder) {
+  const orderStatus = mpOrder?.status;
+  const paymentStatus = mpOrder?.transactions?.payments?.[0]?.status;
+  const status = orderStatus || paymentStatus;
+
+  switch (status) {
+    case "processed":
     case "approved":
       return "paid";
-    case "rejected":
+    case "failed":
+    case "canceled":
     case "cancelled":
+    case "expired":
+    case "rejected":
       return "failed";
     case "refunded":
     case "charged_back":
@@ -68,6 +59,38 @@ export function mapMercadoPagoStatus(mpStatus) {
     default:
       return "pending";
   }
+}
+
+/**
+ * Extrai dados de PIX (QR Code e Copia e Cola) de uma Order (/v1/orders).
+ */
+export function extractPixDataFromOrder(mpOrder) {
+  const payment = mpOrder?.transactions?.payments?.[0];
+  const pm = payment?.payment_method || {};
+
+  if (!pm.qr_code && !pm.qr_code_base64 && !pm.ticket_url) {
+    return null;
+  }
+
+  return {
+    qrCode: pm.qr_code || null,
+    qrCodeBase64: pm.qr_code_base64 || null,
+    ticketUrl: pm.ticket_url || null,
+  };
+}
+
+/**
+ * Gera um e-mail válido de pagador caso o cliente não tenha informado um.
+ */
+export function resolvePayerEmail(email, customerPhone, orderId) {
+  const trimmed = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const digits = String(customerPhone || "").replace(/\D/g, "");
+  const suffix = digits || `pedido${orderId || Date.now()}`;
+  return `cliente.${suffix}@pedidofacil.com.br`;
 }
 
 /**
@@ -110,100 +133,168 @@ export async function validateMercadoPagoToken(accessToken) {
 }
 
 /**
- * Cria uma preferência no Mercado Pago Checkout Pro e retorna a URL de pagamento.
+ * Cria uma Order PIX na API /v1/orders do Mercado Pago.
  */
-export async function createCheckoutPreference({
+export async function createPixOrder({
   accessToken,
   order,
   store,
-  items,
-  appUrl,
+  payerEmail,
 }) {
-  const mpItems = (items || []).map((item, idx) => ({
-    id: String(item.product_id || idx + 1),
-    title: String(item.product_name || "Item").slice(0, 250),
-    quantity: Number(item.quantity),
-    currency_id: "BRL",
-    unit_price: Number(Number(item.unit_price).toFixed(2)),
-  }));
-
-  const deliveryFee = Number(order.delivery_fee || 0);
-  if (deliveryFee > 0) {
-    mpItems.push({
-      id: "delivery-fee",
-      title: "Taxa de entrega",
-      quantity: 1,
-      currency_id: "BRL",
-      unit_price: Number(deliveryFee.toFixed(2)),
-    });
-  }
-
-  const baseReturnUrl = `${appUrl}/${encodeURIComponent(store.slug)}?order=${order.id}`;
+  const amount = Number(order.total).toFixed(2);
+  const idempotencyKey = `pf-order-${order.id}-pix-${crypto.randomUUID()}`;
 
   const payload = {
-    items: mpItems,
+    type: "online",
+    processing_mode: "automatic",
+    total_amount: amount,
     external_reference: String(order.id),
-    statement_descriptor: String(store.name || "Pedido Facil")
-      .replace(/[^a-zA-Z0-9 ]/g, "")
-      .trim()
-      .slice(0, 22),
-    back_urls: {
-      success: `${baseReturnUrl}&mp_status=success`,
-      pending: `${baseReturnUrl}&mp_status=pending`,
-      failure: `${baseReturnUrl}&mp_status=failure`,
+    description: `Pedido #${order.id} - ${store.name}`.slice(0, 250),
+    payer: {
+      email: resolvePayerEmail(payerEmail, order.customer_phone, order.id),
     },
-    metadata: {
-      order_id: order.id,
-      store_id: store.id,
+    transactions: {
+      payments: [
+        {
+          amount,
+          payment_method: {
+            id: "pix",
+            type: "bank_transfer",
+          },
+        },
+      ],
     },
   };
 
-  // Mercado Pago só aceita auto_return e notification_url em domínios HTTPS públicos.
-  if (isPublicHttpsUrl(appUrl)) {
-    payload.auto_return = "approved";
-    payload.notification_url = `${appUrl}/api/payments/mercadopago/webhook?store_id=${store.id}`;
-  }
-
-  const response = await fetch(`${MP_API_BASE}/checkout/preferences`, {
+  const response = await fetch(`${MP_API_BASE}/v1/orders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      "X-Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(MP_TIMEOUT_MS),
     cache: "no-store",
   });
 
+  const data = await response.json().catch(() => ({}));
+
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const detail =
+      data?.errors?.[0]?.message ||
+      data?.message ||
+      JSON.stringify(data).slice(0, 300);
     throw new Error(
-      `Mercado Pago respondeu ${response.status} ao criar pagamento: ${body.slice(0, 400)}`,
+      `Mercado Pago respondeu ${response.status} ao criar cobrança PIX: ${detail}`,
     );
   }
 
-  const data = await response.json();
-  const isSandbox = accessToken.startsWith("TEST-");
-  const initPoint = isSandbox
-    ? data.sandbox_init_point || data.init_point
-    : data.init_point;
-
-  if (!initPoint) {
-    throw new Error("Mercado Pago não retornou a URL de pagamento.");
-  }
+  const payment = data?.transactions?.payments?.[0] || {};
 
   return {
-    preferenceId: data.id,
-    initPoint,
+    mpOrderId: data.id,
+    status: data.status,
+    statusDetail: payment.status_detail || data.status_detail || null,
+    mappedStatus: mapMercadoPagoOrderStatus(data),
+    pix: extractPixDataFromOrder(data),
   };
 }
 
 /**
- * Consulta um pagamento específico pelo ID na API do Mercado Pago.
+ * Cria uma Order de Cartão (Crédito/Débito) na API /v1/orders do Mercado Pago
+ * usando o token seguro gerado no frontend via Mercado Pago SDK JS / Brick.
  */
-export async function getMercadoPagoPayment(accessToken, paymentId) {
+export async function createCardOrder({
+  accessToken,
+  order,
+  store,
+  card,
+}) {
+  const amount = Number(order.total).toFixed(2);
+  const idempotencyKey = `pf-order-${order.id}-card-${crypto.randomUUID()}`;
+
+  const payer = {
+    email: resolvePayerEmail(card?.payerEmail, order.customer_phone, order.id),
+  };
+
+  const docNumber = String(card?.identification?.number || "").replace(
+    /\D/g,
+    "",
+  );
+  if (docNumber) {
+    payer.identification = {
+      type: card?.identification?.type || "CPF",
+      number: docNumber,
+    };
+  }
+
+  const paymentType =
+    card?.paymentTypeId === "debit_card" ? "debit_card" : "credit_card";
+
+  const payload = {
+    type: "online",
+    processing_mode: "automatic",
+    capture_mode: "automatic",
+    total_amount: amount,
+    external_reference: String(order.id),
+    description: `Pedido #${order.id} - ${store.name}`.slice(0, 250),
+    payer,
+    transactions: {
+      payments: [
+        {
+          amount,
+          payment_method: {
+            id: String(card.paymentMethodId),
+            type: paymentType,
+            token: String(card.token),
+            installments: Math.max(1, Number(card.installments || 1)),
+          },
+        },
+      ],
+    },
+  };
+
+  const response = await fetch(`${MP_API_BASE}/v1/orders`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "X-Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(MP_TIMEOUT_MS),
+    cache: "no-store",
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const detail =
+      data?.errors?.[0]?.message ||
+      data?.message ||
+      JSON.stringify(data).slice(0, 300);
+    throw new Error(
+      `Mercado Pago respondeu ${response.status} ao processar cartão: ${detail}`,
+    );
+  }
+
+  const payment = data?.transactions?.payments?.[0] || {};
+
+  return {
+    mpOrderId: data.id,
+    status: data.status,
+    statusDetail: payment.status_detail || data.status_detail || null,
+    mappedStatus: mapMercadoPagoOrderStatus(data),
+  };
+}
+
+/**
+ * Consulta uma Order específica pelo ID na API /v1/orders do Mercado Pago.
+ */
+export async function getMercadoPagoOrder(accessToken, mpOrderId) {
   const response = await fetch(
-    `${MP_API_BASE}/v1/payments/${encodeURIComponent(String(paymentId))}`,
+    `${MP_API_BASE}/v1/orders/${encodeURIComponent(String(mpOrderId))}`,
     {
       method: "GET",
       headers: {
@@ -221,38 +312,9 @@ export async function getMercadoPagoPayment(accessToken, paymentId) {
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(
-      `Mercado Pago respondeu ${response.status} ao consultar pagamento: ${body.slice(0, 300)}`,
+      `Mercado Pago respondeu ${response.status} ao consultar order: ${body.slice(0, 300)}`,
     );
   }
 
   return response.json();
-}
-
-/**
- * Busca o pagamento mais recente associado a um pedido (via external_reference).
- */
-export async function findLatestPaymentByOrder(accessToken, orderId) {
-  const url = `${MP_API_BASE}/v1/payments/search?external_reference=${encodeURIComponent(
-    String(orderId),
-  )}&sort=date_created&criteria=desc&limit=1`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    signal: AbortSignal.timeout(MP_TIMEOUT_MS),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Mercado Pago respondeu ${response.status} ao buscar pagamentos: ${body.slice(0, 300)}`,
-    );
-  }
-
-  const data = await response.json().catch(() => ({}));
-  const results = Array.isArray(data.results) ? data.results : [];
-  return results[0] || null;
 }

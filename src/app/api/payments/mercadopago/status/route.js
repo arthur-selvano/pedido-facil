@@ -2,9 +2,9 @@ import { NextResponse, after } from "next/server";
 import { prisma } from "@/lib/db";
 import {
   resolveMercadoPagoToken,
-  getMercadoPagoPayment,
-  findLatestPaymentByOrder,
-  mapMercadoPagoStatus,
+  getMercadoPagoOrder,
+  mapMercadoPagoOrderStatus,
+  extractPixDataFromOrder,
 } from "@/lib/mercadopago";
 import { notifyPaymentConfirmed } from "@/lib/whatsapp";
 
@@ -12,7 +12,6 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const orderId = Number(url.searchParams.get("order_id"));
-    const paymentIdParam = url.searchParams.get("payment_id");
 
     if (!orderId || Number.isNaN(orderId)) {
       return NextResponse.json(
@@ -44,33 +43,33 @@ export async function GET(request) {
     }
 
     let currentPaymentStatus = order.payment_status;
+    let statusDetail = null;
+    let pix = null;
 
-    if (order.payment_method === "online" && currentPaymentStatus !== "paid") {
+    if (
+      order.payment_method === "online" &&
+      currentPaymentStatus !== "paid" &&
+      order.payment_id
+    ) {
       const accessToken = resolveMercadoPagoToken(order.stores);
 
       if (accessToken) {
-        let payment = null;
-
         try {
-          if (paymentIdParam && /^\d+$/.test(paymentIdParam)) {
-            const candidate = await getMercadoPagoPayment(
-              accessToken,
-              paymentIdParam,
-            );
-            if (
-              candidate &&
-              String(candidate.external_reference) === String(order.id)
-            ) {
-              payment = candidate;
+          const mpOrder = await getMercadoPagoOrder(
+            accessToken,
+            order.payment_id,
+          );
+
+          if (mpOrder) {
+            const mappedStatus = mapMercadoPagoOrderStatus(mpOrder);
+            statusDetail =
+              mpOrder?.transactions?.payments?.[0]?.status_detail ||
+              mpOrder?.status_detail ||
+              null;
+
+            if (mappedStatus === "pending") {
+              pix = extractPixDataFromOrder(mpOrder);
             }
-          }
-
-          if (!payment) {
-            payment = await findLatestPaymentByOrder(accessToken, order.id);
-          }
-
-          if (payment) {
-            const mappedStatus = mapMercadoPagoStatus(payment.status);
 
             if (mappedStatus === "paid") {
               const { count } = await prisma.orders.updateMany({
@@ -80,7 +79,7 @@ export async function GET(request) {
                 },
                 data: {
                   payment_status: "paid",
-                  payment_id: String(payment.id),
+                  payment_url: null,
                 },
               });
               currentPaymentStatus = "paid";
@@ -98,7 +97,6 @@ export async function GET(request) {
                 },
                 data: {
                   payment_status: mappedStatus,
-                  payment_id: String(payment.id),
                 },
               });
               currentPaymentStatus = mappedStatus;
@@ -106,7 +104,7 @@ export async function GET(request) {
           }
         } catch (err) {
           console.error(
-            `[mercadopago] Falha ao sincronizar pagamento do pedido #${order.id}:`,
+            `[mercadopago] Falha ao sincronizar order do pedido #${order.id}:`,
             err,
           );
         }
@@ -118,9 +116,10 @@ export async function GET(request) {
       status: order.status,
       payment_method: order.payment_method,
       payment_status: currentPaymentStatus,
+      status_detail: statusDetail,
       total: Number(order.total),
-      payment_url:
-        currentPaymentStatus === "paid" ? null : order.payment_url || null,
+      mp_order_id: order.payment_id || null,
+      pix,
     });
   } catch (error) {
     console.error("Erro ao consultar status do pagamento:", error);

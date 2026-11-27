@@ -2,8 +2,8 @@ import { NextResponse, after } from "next/server";
 import { prisma } from "@/lib/db";
 import {
   resolveMercadoPagoToken,
-  getMercadoPagoPayment,
-  mapMercadoPagoStatus,
+  getMercadoPagoOrder,
+  mapMercadoPagoOrderStatus,
 } from "@/lib/mercadopago";
 import { notifyPaymentConfirmed } from "@/lib/whatsapp";
 
@@ -14,98 +14,146 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
 
     const topic =
-      body?.type || body?.topic || url.searchParams.get("type") || url.searchParams.get("topic");
+      body?.type ||
+      body?.topic ||
+      url.searchParams.get("type") ||
+      url.searchParams.get("topic");
+    const action = typeof body?.action === "string" ? body.action : "";
 
-    if (topic && topic !== "payment") {
+    const isOrderEvent =
+      topic === "order" || action.startsWith("order.");
+
+    if ((topic || action) && !isOrderEvent) {
       return NextResponse.json({ received: true, ignored: true });
     }
 
-    const paymentId =
+    const mpOrderId =
       body?.data?.id ||
       url.searchParams.get("data.id") ||
       url.searchParams.get("id") ||
       body?.id;
 
-    if (!paymentId) {
+    if (!mpOrderId) {
       return NextResponse.json({ received: true, ignored: true });
     }
 
-    const storeId = Number(storeIdParam);
-    if (!storeId || Number.isNaN(storeId)) {
+    const storeIdFromQuery = Number(storeIdParam);
+    let localOrder = null;
+
+    // Localiza o pedido pelo payment_id (ORD...) ou external_reference
+    if (storeIdFromQuery && !Number.isNaN(storeIdFromQuery)) {
+      localOrder = await prisma.orders.findFirst({
+        where: {
+          store_id: storeIdFromQuery,
+          payment_id: String(mpOrderId),
+        },
+        include: {
+          stores: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              whatsapp_instance: true,
+              mp_access_token: true,
+            },
+          },
+        },
+      });
+    } else {
+      localOrder = await prisma.orders.findFirst({
+        where: { payment_id: String(mpOrderId) },
+        include: {
+          stores: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              whatsapp_instance: true,
+              mp_access_token: true,
+            },
+          },
+        },
+      });
+    }
+
+    if (!localOrder && body?.data?.external_reference) {
+      const extId = Number(body.data.external_reference);
+      if (extId && !Number.isNaN(extId)) {
+        localOrder = await prisma.orders.findUnique({
+          where: { id: extId },
+          include: {
+            stores: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                whatsapp_instance: true,
+                mp_access_token: true,
+              },
+            },
+          },
+        });
+      }
+    }
+
+    if (!localOrder || !localOrder.stores) {
       return NextResponse.json({ received: true, ignored: true });
     }
 
-    const store = await prisma.stores.findUnique({
-      where: { id: storeId },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        whatsapp_instance: true,
-        mp_access_token: true,
-      },
-    });
-
-    if (!store) {
-      return NextResponse.json({ received: true, ignored: true });
-    }
-
+    const store = localOrder.stores;
     const accessToken = resolveMercadoPagoToken(store);
     if (!accessToken) {
       return NextResponse.json({ received: true, ignored: true });
     }
 
-    const payment = await getMercadoPagoPayment(accessToken, paymentId);
-    if (!payment) {
+    const mpOrder = await getMercadoPagoOrder(accessToken, mpOrderId);
+    if (!mpOrder) {
       return NextResponse.json({ received: true, ignored: true });
     }
 
-    const orderId = Number(payment.external_reference);
-    if (!orderId || Number.isNaN(orderId)) {
-      return NextResponse.json({ received: true, ignored: true });
-    }
-
-    const mappedStatus = mapMercadoPagoStatus(payment.status);
+    const externalOrderId = Number(mpOrder.external_reference) || localOrder.id;
+    const mappedStatus = mapMercadoPagoOrderStatus(mpOrder);
 
     if (mappedStatus === "paid") {
       // Atualiza apenas se ainda não estava pago, evitando notificações duplicadas.
       const { count } = await prisma.orders.updateMany({
         where: {
-          id: orderId,
+          id: externalOrderId,
           store_id: store.id,
           payment_status: { not: "paid" },
         },
         data: {
           payment_status: "paid",
-          payment_id: String(payment.id),
+          payment_id: String(mpOrder.id),
+          payment_url: null,
         },
       });
 
       if (count > 0) {
-        const order = await prisma.orders.findFirst({
-          where: { id: orderId, store_id: store.id },
+        const updatedOrder = await prisma.orders.findFirst({
+          where: { id: externalOrderId, store_id: store.id },
         });
-        if (order) {
-          after(() => notifyPaymentConfirmed({ order, store }));
+        if (updatedOrder) {
+          after(() => notifyPaymentConfirmed({ order: updatedOrder, store }));
         }
       }
     } else {
       await prisma.orders.updateMany({
         where: {
-          id: orderId,
+          id: externalOrderId,
           store_id: store.id,
           payment_status: { not: "paid" },
         },
         data: {
           payment_status: mappedStatus,
-          payment_id: String(payment.id),
+          payment_id: String(mpOrder.id),
         },
       });
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("[mercadopago] Erro no webhook:", error);
+    console.error("[mercadopago] Erro no webhook de Orders:", error);
     return NextResponse.json({ received: true }, { status: 200 });
   }
 }

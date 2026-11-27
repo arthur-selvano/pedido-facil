@@ -86,6 +86,7 @@ model stores {
   is_open           Boolean       @default(true)
   whatsapp_instance String?       @db.VarChar(100)
   mp_access_token   String?
+  mp_public_key     String?
   categories     categories[]
   orders         orders[]
   products       products[]
