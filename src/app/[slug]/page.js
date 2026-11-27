@@ -64,8 +64,22 @@ export default function PublicStorePage({ params }) {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-          <p className="text-gray-600 font-medium">Carregando cardápio...</p>
+        <div className="min-h-screen bg-[#F8F7F5]">
+          <div className="h-1.5 bg-gradient-to-r from-[#BC0202] to-[#830000]" />
+          <div className="bg-white border-b border-stone-200/80 px-4 sm:px-6 py-6">
+            <div className="max-w-3xl mx-auto flex items-center gap-4 animate-pulse">
+              <div className="w-16 h-16 rounded-2xl bg-stone-200 shrink-0" />
+              <div className="space-y-2.5 flex-1">
+                <div className="h-5 w-48 bg-stone-200 rounded-lg" />
+                <div className="h-3.5 w-36 bg-stone-100 rounded-lg" />
+              </div>
+            </div>
+          </div>
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-3 animate-pulse">
+            <div className="h-28 bg-white rounded-2xl border border-stone-200/70" />
+            <div className="h-28 bg-white rounded-2xl border border-stone-200/70" />
+            <div className="h-28 bg-white rounded-2xl border border-stone-200/70" />
+          </div>
         </div>
       }
     >
