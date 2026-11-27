@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [togglingStore, setTogglingStore] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   // Computed client-side after load: reading the clock during render breaks
   // the Cache Components prerender of this route.
@@ -124,6 +125,18 @@ export default function DashboardPage() {
       setTimeout(() => setCopiedLink(false), 2500);
     } catch (err) {
       alert(`Copie o link: ${publicUrl}`);
+    }
+  }
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.replace("/login");
+      router.refresh();
+    } catch (err) {
+      console.error("Erro ao sair da conta:", err);
+      setLoggingOut(false);
     }
   }
 
@@ -247,6 +260,17 @@ export default function DashboardPage() {
               {submitting ? "Salvando..." : "Criar minha loja"}
             </button>
           </form>
+
+          <div className="mt-4 pt-4 border-t border-gray-100 text-center">
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="text-sm font-semibold text-gray-500 hover:text-gray-800 transition cursor-pointer disabled:opacity-50"
+            >
+              {loggingOut ? "Saindo..." : "Sair da conta"}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -272,7 +296,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               onClick={handleToggleStore}
               disabled={togglingStore}
@@ -296,6 +320,15 @@ export default function DashboardPage() {
             >
               Ver Cardápio Público
             </Link>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="px-3.5 sm:px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs sm:text-sm font-bold rounded-xl border border-gray-300 transition cursor-pointer disabled:opacity-50"
+            >
+              {loggingOut ? "Saindo..." : "Sair"}
+            </button>
           </div>
         </div>
       </header>

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+const SLUG_REGEX = /^[a-z0-9-]+$/;
+const RESERVED_SLUGS = new Set(["login", "register", "dashboard", "api"]);
+
 export async function POST(request) {
   try {
     const token = request.cookies.get("token")?.value;
@@ -13,9 +16,33 @@ export async function POST(request) {
 
     const { name, slug, phone, delivery_fee } = await request.json();
 
-    if (!name || !slug) {
+    const cleanName = typeof name === "string" ? name.trim() : "";
+    const cleanSlug =
+      typeof slug === "string" ? slug.toLowerCase().trim() : "";
+
+    if (!cleanName || !cleanSlug) {
       return NextResponse.json(
         { error: "O nome e o slug da loja são obrigatórios." },
+        { status: 400 },
+      );
+    }
+
+    if (!SLUG_REGEX.test(cleanSlug)) {
+      return NextResponse.json(
+        {
+          error:
+            "Link personalizado inválido. Use apenas letras minúsculas, números e hífens.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (RESERVED_SLUGS.has(cleanSlug)) {
+      return NextResponse.json(
+        {
+          error:
+            "Este link é reservado pelo sistema e não pode ser utilizado.",
+        },
         { status: 400 },
       );
     }
@@ -32,8 +59,6 @@ export async function POST(request) {
       );
     }
 
-    const cleanSlug = slug.toLowerCase().trim();
-
     const storeExists = await prisma.stores.findUnique({
       where: { slug: cleanSlug },
       select: { id: true },
@@ -49,7 +74,7 @@ export async function POST(request) {
     const saveStore = await prisma.stores.create({
       data: {
         user_id: decoded.userId,
-        name: name.trim(),
+        name: cleanName,
         slug: cleanSlug,
         phone: phone || null,
         delivery_fee: delivery_fee ? Number(delivery_fee) : 0,
