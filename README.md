@@ -37,8 +37,8 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 
 ### 🏪 Para o Dono da Loja (Painel Administrativo)
 
-- **Autenticação Segura:** Cadastro e login com senha criptografada via `bcrypt` e persistência de sessão em cookie `httpOnly` seguro via JWT.
-- **Configuração da Loja:** Criação e personalização da loja com nome, link amigável exclusivo (`slug`), telefone/WhatsApp de contato e taxa de entrega padrão.
+- **Autenticação e Sessão Segura:** Cadastro, login e logout (`Sair`) com senha criptografada via `bcrypt` e persistência de sessão em cookie `httpOnly` com `sameSite: "lax"`, flag `secure` em produção e token JWT (`HS256`).
+- **Configuração e Edição da Loja:** Criação da loja com link amigável exclusivo (`slug` validado contra caracteres inválidos e rotas reservadas) e edição direta no painel de **nome da loja**, **WhatsApp** e **taxa de entrega**.
 - **Abertura / Fechamento com 1 Clique:** Alterne instantaneamente entre "Loja Aberta" e "Loja Fechada", bloqueando novos pedidos quando fora do expediente.
 - **Métricas em Tempo Real no Dashboard:**
   - Total faturado no dia (pedidos entregues/concluídos).
@@ -137,21 +137,22 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 
 ```text
 .
+├── .env.example               # Modelo documentado das variáveis DATABASE_URL e JWT_SECRET
 ├── docker-compose.yml         # Definição do serviço PostgreSQL para desenvolvimento
 ├── init.sql                   # Script DDL inicial com tabelas e relacionamentos
-├── prisma.config.ts           # Configuração do Prisma ORM 7 (schema, migrations, url)
+├── prisma.config.ts           # Configuração do Prisma ORM 7 (compatível com dev e produção sem dotenv)
 ├── prisma/
 │   └── schema.prisma          # Modelagem declarativa do banco de dados (Prisma Client)
-├── public/                    # Ativos públicos e estáticos (logo, favicon)
+├── public/                    # Ativos públicos e estáticos (logo otimizada < 100 KB, ícones)
 ├── src/
-│   ├── middleware.js          # Middleware de proteção de rotas privadas (/dashboard/*)
+│   ├── proxy.js               # Proxy (Next.js 16) de proteção e validação JWT em /dashboard/*
 │   ├── lib/
-│   │   ├── auth.js            # Funções de assinatura e validação do token JWT
+│   │   ├── auth.js            # Assinatura e verificação consistente do JWT (validação de JWT_SECRET)
 │   │   └── db.js              # Inicialização do PrismaClient singleton com adapter-pg
 │   ├── generated/
-│   │   └── prisma/            # Saída do cliente tipado gerado pelo Prisma
+│   │   └── prisma/            # Saída do cliente tipado gerado pelo Prisma (ignorado no Git)
 │   └── app/
-│       ├── layout.js          # Root layout da aplicação
+│       ├── layout.js          # Root layout da aplicação (pt-BR)
 │       ├── globals.css        # Importações e utilitários globais do Tailwind CSS 4
 │       ├── page.js            # Landing page institucional do Pedido Fácil
 │       ├── login/             # Página pública de autenticação
@@ -160,14 +161,15 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 │       ├── components/
 │       │   └── StoreMenu.js   # Componente interativo do cardápio, carrinho e checkout
 │       ├── dashboard/         # Módulos restritos ao lojista autenticado
-│       │   ├── page.js        # Visão geral, configuração da loja e métricas do dia
+│       │   ├── page.js        # Visão geral, criação/edição da loja, métricas do dia e logout
 │       │   ├── menu/          # Gestão de categorias e produtos (criar, editar, pausar, excluir)
 │       │   └── orders/        # Fila de pedidos da cozinha com polling automático
 │       └── api/               # API RESTful interna (Route Handlers)
 │           ├── auth/
-│           │   ├── login/     # POST: autenticação e geração de cookie JWT
+│           │   ├── login/     # POST: autenticação e geração de cookie JWT seguro
+│           │   ├── logout/    # POST: encerramento de sessão e expiração do cookie JWT
 │           │   └── register/  # POST: criação de usuário lojista
-│           ├── stores/        # GET, POST, PATCH (abrir/fechar loja)
+│           ├── stores/        # GET, POST (validação de slug), PATCH (status e dados da loja)
 │           ├── categories/    # GET, POST
 │           ├── products/      # GET, POST
 │           │   └── [id]/      # PATCH (edição e disponibilidade), DELETE (exclusão segura)
@@ -186,12 +188,12 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 | `/`                 | Público         | Landing page com proposta de valor e apresentação da plataforma |
 | `/login`            | Público         | Formulário de entrada para donos de lojas                        |
 | `/register`         | Público         | Formulário de cadastro de conta de lojista                       |
-| `/dashboard`        | **Protegido**   | Visão geral, métricas de vendas do dia e status de funcionamento |
+| `/dashboard`        | **Protegido**   | Visão geral, edição de dados da loja, métricas do dia, status e logout |
 | `/dashboard/menu`   | **Protegido**   | Gerenciamento completo de categorias e produtos                  |
 | `/dashboard/orders` | **Protegido**   | Fila de pedidos para controle da cozinha e despacho             |
 | `/[slug]`           | Público         | Vitrine digital da loja, catálogo de produtos e checkout        |
 
-> O [`middleware.js`](src/middleware.js) intercepta automaticamente qualquer rota iniciada por `/dashboard` e redireciona para `/login` caso o cookie `token` não esteja presente.
+> O [`proxy.js`](src/proxy.js) intercepta automaticamente qualquer rota iniciada por `/dashboard`, valida o token JWT no servidor e remove cookies expirados/inválidos antes de redirecionar para `/login`.
 
 ---
 
@@ -200,10 +202,11 @@ A arquitetura adota modelo multi-tenant por estabelecimento: todos os dados de c
 | Método   | Endpoint                  | Acesso        | Descrição                                                                               |
 | -------- | ------------------------- | ------------- | --------------------------------------------------------------------------------------- |
 | `POST`   | `/api/auth/register`      | Público       | Registra um novo usuário (valida e-mail único e senha mínima de 6 caracteres).           |
-| `POST`   | `/api/auth/login`         | Público       | Autentica credenciais e define o cookie HTTP-only `token` (validade de 7 dias).          |
+| `POST`   | `/api/auth/login`         | Público       | Autentica credenciais e define o cookie `token` (`httpOnly`, `sameSite: "lax"`, `secure` em produção, 7 dias). |
+| `POST`   | `/api/auth/logout`        | Público       | Encerra a sessão do lojista expirando imediatamente o cookie `token`.                   |
 | `GET`    | `/api/stores`             | Autenticado   | Retorna as informações da loja do usuário logado (ou `null` caso ainda não configurada). |
-| `POST`   | `/api/stores`             | Autenticado   | Cria a loja associada à conta (garante 1 loja por lojista e `slug` exclusivo).           |
-| `PATCH`  | `/api/stores`             | Autenticado   | Alterna o status da loja entre aberta e fechada (`is_open: true/false`).                |
+| `POST`   | `/api/stores`             | Autenticado   | Cria a loja associada à conta (1 loja por lojista, `slug` `^[a-z0-9-]+$` e bloqueio de rotas reservadas). |
+| `PATCH`  | `/api/stores`             | Autenticado   | Alterna o status da loja (`is_open`) e/ou edita dados cadastrais (`name`, `phone`, `delivery_fee`). |
 | `GET`    | `/api/categories`         | Autenticado   | Lista todas as categorias cadastradas na loja do usuário autenticado.                   |
 | `POST`   | `/api/categories`         | Autenticado   | Adiciona uma nova categoria ao cardápio da loja.                                        |
 | `GET`    | `/api/products`           | Autenticado   | Lista todos os produtos da loja com categoria e indicador de pedidos vinculados.        |
@@ -385,14 +388,29 @@ Abra o navegador em: [http://localhost:3000](http://localhost:3000).
 
 ---
 
+## ☁️ Deploy em Produção
+
+1. Configure as variáveis de ambiente no provedor de hospedagem (baseadas no [`.env.example`](.env.example)):
+   - `DATABASE_URL` — string de conexão do PostgreSQL de produção (ex.: com `?sslmode=require`).
+   - `JWT_SECRET` — chave secreta longa e aleatória (ex.: `openssl rand -base64 48`).
+2. Sincronize o schema do Prisma no banco de produção:
+   ```bash
+   DATABASE_URL="postgresql://USUARIO:SENHA@HOST:PORTA/BANCO?sslmode=require" npx prisma db push
+   ```
+3. O pipeline de deploy executa automaticamente `npm install` (`postinstall` gera o Prisma Client) e `npm run build` (`prisma generate && next build`), sem depender de pacotes extras como `dotenv` em produção.
+
+---
+
 ## 🔒 Regras de Negócio e Segurança
 
 1. **Preços Confiáveis (Imutabilidade pelo Cliente):** Os preços nunca são aceitos a partir do cliente/navegador. No ato do checkout, a API busca os produtos no banco via seus IDs, valida a disponibilidade e calcula subtotal, taxa de entrega e valor total no servidor.
 2. **Bloqueio de Pedidos Fora do Horário:** Caso a loja esteja fechada (`is_open = false`), a API rejeita qualquer tentativa de pedido antes de gravar no banco.
 3. **Integridade de Histórico de Vendas:** Produtos associados a pedidos anteriores não podem ser apagados do banco de dados (exclusão física) para não comprometer relatórios financeiros e comandas passadas. Em vez disso, o sistema orienta o lojista a pausar o produto.
 4. **Isolamento Multi-tenant Rigoroso:** Todas as ações restritas inferem a loja do usuário através do payload do token JWT decodificado no servidor, impedindo que um lojista acesse ou modifique dados de outro.
-5. **Proteção contra Injeção de Dados:** Uso de queries parametrizadas gerenciadas internamente pelo Prisma ORM e pelo driver adapter seguro.
-6. **Armazenamento de Credenciais:** As senhas dos usuários nunca são salvas em texto puro, sendo processadas com hash criptográfico `bcrypt` com fator de custo 10.
+5. **Sessão Blindada e Logout:** Validação estrita da presença de `JWT_SECRET`, assinatura/verificação `HS256` consistente na API e no [`src/proxy.js`](src/proxy.js), cookie configurado com `httpOnly`, `sameSite: "lax"` e `secure` em produção, além de rota dedicada de logout (`POST /api/auth/logout`).
+6. **Proteção de Endereços (`slug`):** Validação do formato do link personalizado (`^[a-z0-9-]+$`) e bloqueio de rotas reservadas da aplicação (`login`, `register`, `dashboard`, `api`).
+7. **Proteção contra Injeção de Dados:** Uso de queries parametrizadas gerenciadas internamente pelo Prisma ORM e pelo driver adapter seguro.
+8. **Armazenamento de Credenciais:** As senhas dos usuários nunca são salvas em texto puro, sendo processadas com hash criptográfico `bcrypt` com fator de custo 10.
 
 ---
 
