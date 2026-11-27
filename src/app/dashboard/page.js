@@ -26,6 +26,9 @@ export default function DashboardPage() {
 
   const [togglingStore, setTogglingStore] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  // Computed client-side after load: reading the clock during render breaks
+  // the Cache Components prerender of this route.
+  const [todayKey, setTodayKey] = useState("");
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -45,6 +48,7 @@ export default function DashboardPage() {
 
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json();
+          setTodayKey(new Date().toLocaleDateString("pt-BR"));
           setOrders(ordersData.orders || []);
         }
       } catch (err) {
@@ -122,8 +126,6 @@ export default function DashboardPage() {
       alert(`Copie o link: ${publicUrl}`);
     }
   }
-
-  const todayKey = new Date().toLocaleDateString("pt-BR");
 
   const todayDeliveredOrders = orders.filter((order) => {
     if (order.status !== "delivered" || !order.created_at) return false;

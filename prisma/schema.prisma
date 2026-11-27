@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model categories {
+  id         Int        @id @default(autoincrement())
+  store_id   Int
+  name       String     @db.VarChar(100)
+  created_at DateTime?  @default(now()) @db.Timestamp(6)
+  stores     stores     @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products   products[]
+}
+
+model order_items {
+  id           Int       @id @default(autoincrement())
+  order_id     Int
+  product_id   Int?
+  product_name String    @db.VarChar(150)
+  unit_price   Decimal   @db.Decimal(10, 2)
+  quantity     Int
+  orders       orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products     products? @relation(fields: [product_id], references: [id], onUpdate: NoAction)
+}
+
+model orders {
+  id             Int           @id @default(autoincrement())
+  store_id       Int
+  customer_name  String        @db.VarChar(150)
+  customer_phone String        @db.VarChar(30)
+  delivery_type  String        @default("delivery") @db.VarChar(20)
+  address        String?
+  payment_method String        @db.VarChar(50)
+  notes          String?
+  subtotal       Decimal       @db.Decimal(10, 2)
+  delivery_fee   Decimal       @default(0) @db.Decimal(10, 2)
+  total          Decimal       @db.Decimal(10, 2)
+  status         String        @default("pending") @db.VarChar(30)
+  created_at     DateTime?     @default(now()) @db.Timestamp(6)
+  order_items    order_items[]
+  stores         stores        @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model products {
+  id          Int           @id @default(autoincrement())
+  store_id    Int
+  category_id Int
+  name        String        @db.VarChar(150)
+  description String?
+  price       Decimal       @db.Decimal(10, 2)
+  image_url   String?
+  available   Boolean?      @default(true)
+  created_at  DateTime?     @default(now()) @db.Timestamp(6)
+  order_items order_items[]
+  categories  categories    @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  stores      stores        @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model store_hours {
+  id          Int      @id @default(autoincrement())
+  store_id    Int
+  day_of_week Int
+  open_time   DateTime @db.Time(6)
+  close_time  DateTime @db.Time(6)
+  is_closed   Boolean? @default(false)
+  stores      stores   @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model stores {
+  id             Int           @id @default(autoincrement())
+  user_id        Int
+  name           String        @db.VarChar(100)
+  slug           String        @unique @db.VarChar(100)
+  phone          String?       @db.VarChar(20)
+  delivery_fee   Decimal?      @default(0.00) @db.Decimal(10, 2)
+  is_open_manual Boolean?      @default(true)
+  created_at     DateTime?     @default(now()) @db.Timestamp(6)
+  is_open        Boolean       @default(true)
+  categories     categories[]
+  orders         orders[]
+  products       products[]
+  store_hours    store_hours[]
+  users          users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model users {
+  id            Int       @id @default(autoincrement())
+  name          String    @db.VarChar(100)
+  email         String    @unique @db.VarChar(150)
+  password_hash String
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  stores        stores[]
+}

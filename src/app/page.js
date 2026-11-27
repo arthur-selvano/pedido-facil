@@ -1,4 +1,13 @@
 import Link from "next/link";
+import { cacheLife } from "next/cache";
+
+// Cached so the home page stays prerendered (Cache Components forbids a raw
+// `new Date()` during prerender); revalidated daily so the year rolls over.
+async function CurrentYear() {
+  "use cache";
+  cacheLife("days");
+  return new Date().getFullYear();
+}
 
 export default function HomePage() {
   return (
@@ -279,7 +288,7 @@ export default function HomePage() {
       <footer className="bg-white border-t border-gray-200 px-4 sm:px-6 py-6">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-3 text-xs text-gray-500">
           <p>
-            © {new Date().getFullYear()} Pedido Fácil. Todos os direitos
+            © <CurrentYear /> Pedido Fácil. Todos os direitos
             reservados.
           </p>
         </div>
