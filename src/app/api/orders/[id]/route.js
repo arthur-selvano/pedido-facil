@@ -1,6 +1,7 @@
 import { verifyToken } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { NextResponse } from "next/server";
+import { notifyOrderStatus } from "@/lib/whatsapp";
+import { NextResponse, after } from "next/server";
 
 export async function PATCH(request, { params }) {
   try {
@@ -14,7 +15,7 @@ export async function PATCH(request, { params }) {
 
     const store = await prisma.stores.findFirst({
       where: { user_id: decoded.userId },
-      select: { id: true },
+      select: { id: true, name: true, phone: true, whatsapp_instance: true },
     });
 
     if (!store) {
@@ -46,26 +47,42 @@ export async function PATCH(request, { params }) {
       );
     }
 
-    const updatedOrder = await prisma.orders.update({
+    // Atualiza somente se o status for diferente do atual, evitando mensagens
+    // duplicadas no WhatsApp em cliques repetidos ou requisições concorrentes.
+    const { count } = await prisma.orders.updateMany({
       where: {
         id: orderId,
         store_id: store.id,
+        status: { not: status },
       },
       data: { status },
     });
 
-    return NextResponse.json({
-      message: "Status atualizado com sucesso!",
-      order: updatedOrder,
+    const updatedOrder = await prisma.orders.findFirst({
+      where: { id: orderId, store_id: store.id },
     });
-  } catch (error) {
-    if (error.code === "P2025") {
+
+    if (!updatedOrder) {
       return NextResponse.json(
         { error: "Pedido não encontrado." },
         { status: 404 },
       );
     }
 
+    const statusChanged = count > 0;
+
+    if (statusChanged) {
+      // Notifica o cliente no WhatsApp sem atrasar a resposta do painel.
+      after(() =>
+        notifyOrderStatus({ order: updatedOrder, store, status }),
+      );
+    }
+
+    return NextResponse.json({
+      message: "Status atualizado com sucesso!",
+      order: updatedOrder,
+    });
+  } catch (error) {
     console.error("Erro ao atualizar status do pedido:", error);
     return NextResponse.json(
       { error: "Erro interno no servidor." },

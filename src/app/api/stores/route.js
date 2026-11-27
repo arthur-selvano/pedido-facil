@@ -5,6 +5,15 @@ import { prisma } from "@/lib/db";
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const RESERVED_SLUGS = new Set(["login", "register", "dashboard", "api"]);
 
+function sanitizeStore(store) {
+  if (!store) return null;
+  const { mp_access_token, ...safeStore } = store;
+  return {
+    ...safeStore,
+    has_mercadopago: Boolean(mp_access_token),
+  };
+}
+
 export async function POST(request) {
   try {
     const token = request.cookies.get("token")?.value;
@@ -99,7 +108,7 @@ export async function POST(request) {
     return NextResponse.json(
       {
         message: "Loja criada com sucesso!",
-        store: saveStore,
+        store: sanitizeStore(saveStore),
       },
       { status: 201 },
     );
@@ -125,7 +134,7 @@ export async function GET(request) {
       where: { user_id: decoded.userId },
     });
 
-    return NextResponse.json({ store: store || null });
+    return NextResponse.json({ store: sanitizeStore(store) });
   } catch (error) {
     console.error("Erro ao buscar loja:", error);
     return NextResponse.json(
@@ -266,7 +275,7 @@ export async function PATCH(request) {
           ? "Loja aberta!"
           : "Loja fechada!"
         : "Dados da loja atualizados com sucesso!",
-      store: updatedStore,
+      store: sanitizeStore(updatedStore),
     });
   } catch (error) {
     console.error("Erro ao atualizar dados da loja:", error);

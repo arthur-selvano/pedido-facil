@@ -34,6 +34,7 @@ const STATUS_CONFIG = {
 
 function formatPayment(method) {
   const map = {
+    online: "Online (Mercado Pago)",
     pix: "PIX",
     credit_card: "Cartão de Crédito",
     debit_card: "Cartão de Débito",
@@ -43,6 +44,25 @@ function formatPayment(method) {
   };
   return map[method] || method;
 }
+
+const PAYMENT_STATUS_BADGE = {
+  paid: {
+    label: "Pago Online ✓",
+    className: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  },
+  pending: {
+    label: "Aguardando Pagamento",
+    className: "bg-amber-100 text-amber-800 border-amber-300",
+  },
+  failed: {
+    label: "Pagamento Recusado",
+    className: "bg-red-100 text-red-700 border-red-300",
+  },
+  refunded: {
+    label: "Reembolsado",
+    className: "bg-stone-200 text-zinc-700 border-stone-300",
+  },
+};
 
 function formatPrice(value) {
   return Number(value || 0)
@@ -403,13 +423,22 @@ export default function OrdersPage() {
                   </div>
 
                   <div className="px-5 pb-5 pt-3.5 border-t border-stone-100 bg-stone-50/50 space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-xs text-zinc-500">
-                        Pagamento:{" "}
-                        <strong className="text-zinc-800">
-                          {formatPayment(order.payment_method)}
-                        </strong>
-                      </span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs text-zinc-500">
+                          Pagamento:{" "}
+                          <strong className="text-zinc-800">
+                            {formatPayment(order.payment_method)}
+                          </strong>
+                        </span>
+                        {PAYMENT_STATUS_BADGE[order.payment_status] && (
+                          <span
+                            className={`px-2 py-0.5 text-[10px] font-extrabold rounded-md border ${PAYMENT_STATUS_BADGE[order.payment_status].className}`}
+                          >
+                            {PAYMENT_STATUS_BADGE[order.payment_status].label}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-base font-black text-zinc-900">
                         R$ {formatPrice(order.total)}
                       </span>

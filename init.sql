@@ -16,6 +16,9 @@ CREATE TABLE stores (
     phone VARCHAR(20),
     delivery_fee NUMERIC(10, 2) DEFAULT 0.00,
     is_open_manual BOOLEAN DEFAULT TRUE,
+    is_open BOOLEAN NOT NULL DEFAULT TRUE,
+    whatsapp_instance VARCHAR(100),
+    mp_access_token TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -62,6 +65,9 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_type VARCHAR(20) NOT NULL DEFAULT 'delivery',
   address TEXT,
   payment_method VARCHAR(50) NOT NULL,
+  payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid',
+  payment_id VARCHAR(100),
+  payment_url TEXT,
   notes TEXT,
   subtotal NUMERIC(10, 2) NOT NULL,
   delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0,

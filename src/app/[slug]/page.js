@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { hasOnlinePaymentEnabled } from "@/lib/mercadopago";
 import StoreMenu from "../components/StoreMenu";
 
 async function StoreLoader({ params }) {
@@ -15,6 +16,7 @@ async function StoreLoader({ params }) {
       phone: true,
       delivery_fee: true,
       is_open: true,
+      mp_access_token: true,
     },
   });
 
@@ -45,9 +47,11 @@ async function StoreLoader({ params }) {
     }),
   ]);
 
+  const { mp_access_token, ...publicStoreData } = storeData;
   const store = {
-    ...storeData,
-    delivery_fee: Number(storeData.delivery_fee || 0),
+    ...publicStoreData,
+    delivery_fee: Number(publicStoreData.delivery_fee || 0),
+    has_online_payment: hasOnlinePaymentEnabled({ mp_access_token }),
   };
 
   const products = productsData.map((product) => ({

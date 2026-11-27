@@ -1,6 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/auth";
+import { normalizeWhatsAppNumber, notifyOrderStatus } from "@/lib/whatsapp";
+import {
+  resolveMercadoPagoToken,
+  createCheckoutPreference,
+  resolveAppUrl,
+} from "@/lib/mercadopago";
 
 export async function POST(request) {
   try {
@@ -34,6 +40,16 @@ export async function POST(request) {
       );
     }
 
+    if (!normalizeWhatsAppNumber(customer_phone)) {
+      return NextResponse.json(
+        {
+          error:
+            "Informe um número de WhatsApp válido com DDD (ex.: 34999999999).",
+        },
+        { status: 400 },
+      );
+    }
+
     const finalDeliveryType =
       delivery_type === "pickup" ? "pickup" : "delivery";
 
@@ -46,7 +62,16 @@ export async function POST(request) {
 
     const store = await prisma.stores.findUnique({
       where: { id: Number(store_id) },
-      select: { id: true, delivery_fee: true, is_open: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        phone: true,
+        delivery_fee: true,
+        is_open: true,
+        whatsapp_instance: true,
+        mp_access_token: true,
+      },
     });
 
     if (!store) {
@@ -110,11 +135,26 @@ export async function POST(request) {
       });
     }
 
+    const isOnlinePayment = payment_method === "online";
+    const mpAccessToken = isOnlinePayment
+      ? resolveMercadoPagoToken(store)
+      : null;
+
+    if (isOnlinePayment && !mpAccessToken) {
+      return NextResponse.json(
+        {
+          error:
+            "O pagamento online não está disponível nesta loja no momento. Escolha pagar na entrega ou retirada.",
+        },
+        { status: 400 },
+      );
+    }
+
     const deliveryFee =
       finalDeliveryType === "delivery" ? Number(store.delivery_fee || 0) : 0;
     const total = subtotal + deliveryFee;
 
-    const createdOrder = await prisma.orders.create({
+    let createdOrder = await prisma.orders.create({
       data: {
         store_id: store.id,
         customer_name: customer_name.trim(),
@@ -122,6 +162,7 @@ export async function POST(request) {
         delivery_type: finalDeliveryType,
         address: finalDeliveryType === "delivery" ? address.trim() : null,
         payment_method,
+        payment_status: isOnlinePayment ? "pending" : "unpaid",
         notes: notes ? notes.trim() : null,
         subtotal,
         delivery_fee: deliveryFee,
@@ -132,10 +173,58 @@ export async function POST(request) {
       },
     });
 
+    let paymentUrl = null;
+
+    if (isOnlinePayment) {
+      try {
+        const preference = await createCheckoutPreference({
+          accessToken: mpAccessToken,
+          order: createdOrder,
+          store,
+          items: validatedItems,
+          appUrl: resolveAppUrl(request),
+        });
+
+        paymentUrl = preference.initPoint;
+        createdOrder = await prisma.orders.update({
+          where: { id: createdOrder.id },
+          data: { payment_url: paymentUrl },
+        });
+      } catch (mpError) {
+        console.error(
+          `[mercadopago] Falha ao criar checkout para pedido #${createdOrder.id}:`,
+          mpError,
+        );
+        // Remove o pedido órfão caso o gateway falhe ao gerar o link de pagamento
+        await prisma.orders
+          .delete({ where: { id: createdOrder.id } })
+          .catch(() => null);
+
+        return NextResponse.json(
+          {
+            error:
+              "Não foi possível iniciar o pagamento online agora. Tente novamente ou escolha pagar na entrega.",
+          },
+          { status: 502 },
+        );
+      }
+    }
+
+    // Envia a confirmação no WhatsApp do cliente sem atrasar a resposta.
+    after(() =>
+      notifyOrderStatus({
+        order: createdOrder,
+        store,
+        status: "pending",
+        items: validatedItems,
+      }),
+    );
+
     return NextResponse.json(
       {
         message: "Pedido realizado com sucesso!",
         order: createdOrder,
+        payment_url: paymentUrl,
       },
       { status: 201 },
     );

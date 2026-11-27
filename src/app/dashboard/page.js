@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import WhatsAppConnect from "@/app/components/WhatsAppConnect";
+import MercadoPagoConnect from "@/app/components/MercadoPagoConnect";
 
 function formatPrice(value) {
   return Number(value || 0)
@@ -23,6 +25,7 @@ export default function DashboardPage() {
   const [deliveryFee, setDeliveryFee] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showWhatsAppOnboarding, setShowWhatsAppOnboarding] = useState(false);
 
   const [togglingStore, setTogglingStore] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -97,6 +100,7 @@ export default function DashboardPage() {
       }
 
       setStore(data.store);
+      setShowWhatsAppOnboarding(true);
     } catch {
       setError("Erro de conexão com o servidor.");
       setSubmitting(false);
@@ -259,14 +263,14 @@ export default function DashboardPage() {
 
             <div className="text-center mb-6 space-y-1">
               <span className="inline-block px-3 py-0.5 rounded-full bg-red-50 border border-red-200 text-[#BC0202] text-xs font-bold mb-1">
-                Primeiro acesso
+                Passo 1 de 2 · Primeiro acesso
               </span>
               <h1 className="text-2xl sm:text-3xl font-black text-zinc-900 tracking-tight">
                 Configure sua Loja
               </h1>
               <p className="text-sm text-zinc-500">
-                Preencha os dados básicos para gerar o link exclusivo do seu
-                cardápio digital.
+                Preencha os dados básicos para gerar o link do seu cardápio e
+                conectar o WhatsApp da loja em seguida.
               </p>
             </div>
 
@@ -350,7 +354,7 @@ export default function DashboardPage() {
                 disabled={submitting}
                 className="w-full py-3 px-4 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] disabled:opacity-60 text-white text-sm font-bold rounded-xl transition shadow-md shadow-[#BC0202]/20 cursor-pointer mt-2"
               >
-                {submitting ? "Salvando..." : "Criar minha loja"}
+                {submitting ? "Salvando..." : "Criar loja e conectar WhatsApp"}
               </button>
             </form>
 
@@ -367,6 +371,16 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (showWhatsAppOnboarding) {
+    return (
+      <WhatsAppConnect
+        mode="onboarding"
+        storeName={store.name}
+        onFinish={() => setShowWhatsAppOnboarding(false)}
+      />
     );
   }
 
@@ -662,6 +676,12 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+
+        {/* Conexão de WhatsApp da Loja */}
+        <WhatsAppConnect mode="card" storeName={store.name} />
+
+        {/* Pagamento Online (Mercado Pago) */}
+        <MercadoPagoConnect />
 
         {/* Atalhos Operacionais */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">

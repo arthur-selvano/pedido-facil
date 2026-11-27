@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 function formatMoney(value) {
   return Number(value || 0)
@@ -15,16 +15,100 @@ export default function StoreMenu({ store, categories, products }) {
   const [cart, setCart] = useState([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
+  const hasOnlinePayment = Boolean(store.has_online_payment);
+
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryType, setDeliveryType] = useState("delivery");
   const [address, setAddress] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("pix");
+  const [paymentMethod, setPaymentMethod] = useState(
+    hasOnlinePayment ? "online" : "pix",
+  );
   const [notes, setNotes] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [orderSuccess, setOrderSuccess] = useState(null);
+  const [paymentReturn, setPaymentReturn] = useState(null);
+  const [checkingPayment, setCheckingPayment] = useState(false);
+
+  const verifyOrderPayment = useCallback(async (orderId, paymentId = "") => {
+    setCheckingPayment(true);
+    try {
+      const qs = new URLSearchParams({ order_id: String(orderId) });
+      if (paymentId) qs.set("payment_id", String(paymentId));
+      const res = await fetch(
+        `/api/payments/mercadopago/status?${qs.toString()}`,
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setPaymentReturn({
+        orderId: data.orderId,
+        paymentStatus: data.payment_status,
+        total: data.total,
+        paymentUrl: data.payment_url,
+      });
+    } catch {
+      // Mantém o estado atual se falhar a consulta
+    } finally {
+      setCheckingPayment(false);
+    }
+  }, []);
+
+  // Detecta o retorno do Mercado Pago (?order=...&mp_status=...&payment_id=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderIdParam = params.get("order");
+    const mpStatus = params.get("mp_status");
+    const paymentId =
+      params.get("payment_id") || params.get("collection_id") || "";
+
+    if (!orderIdParam) return;
+
+    // Limpa os parâmetros da URL para evitar reprocessar ao recarregar
+    window.history.replaceState({}, "", window.location.pathname);
+
+    let ignore = false;
+
+    async function syncReturnStatus() {
+      try {
+        const qs = new URLSearchParams({ order_id: String(orderIdParam) });
+        if (paymentId) qs.set("payment_id", String(paymentId));
+        const res = await fetch(
+          `/api/payments/mercadopago/status?${qs.toString()}`,
+        );
+        if (ignore) return;
+
+        if (res.ok) {
+          const data = await res.json();
+          setPaymentReturn({
+            orderId: data.orderId,
+            paymentStatus: data.payment_status,
+            total: data.total,
+            paymentUrl: data.payment_url,
+          });
+          return;
+        }
+      } catch {
+        // Fallback para o status vindo na URL
+      }
+
+      if (!ignore) {
+        setPaymentReturn({
+          orderId: Number(orderIdParam),
+          paymentStatus: mpStatus === "failure" ? "failed" : "pending",
+          total: null,
+          paymentUrl: null,
+        });
+      }
+    }
+
+    syncReturnStatus();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const isOpen = store.is_open !== false;
   const deliveryFee = Number(store.delivery_fee) || 0;
@@ -117,6 +201,13 @@ export default function StoreMenu({ store, categories, products }) {
         return;
       }
 
+      if (data.payment_url) {
+        setCart([]);
+        setIsCheckoutOpen(false);
+        window.location.href = data.payment_url;
+        return;
+      }
+
       setOrderSuccess(data.order);
       setCart([]);
       setIsCheckoutOpen(false);
@@ -198,6 +289,86 @@ export default function StoreMenu({ store, categories, products }) {
         </div>
       </header>
 
+      {/* Banner de Retorno do Pagamento Online */}
+      {paymentReturn && (
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 mt-5">
+          <div
+            className={`rounded-2xl p-5 shadow-xs border ${
+              paymentReturn.paymentStatus === "paid"
+                ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                : paymentReturn.paymentStatus === "failed"
+                  ? "bg-red-50 border-red-300 text-red-900"
+                  : "bg-amber-50 border-amber-300 text-amber-950"
+            }`}
+          >
+            <span
+              className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-extrabold mb-1.5 ${
+                paymentReturn.paymentStatus === "paid"
+                  ? "bg-emerald-200/70 text-emerald-900"
+                  : paymentReturn.paymentStatus === "failed"
+                    ? "bg-red-200/70 text-red-900"
+                    : "bg-amber-200/70 text-amber-900"
+              }`}
+            >
+              {paymentReturn.paymentStatus === "paid"
+                ? "Pagamento Aprovado"
+                : paymentReturn.paymentStatus === "failed"
+                  ? "Pagamento Não Concluído"
+                  : "Aguardando Confirmação"}
+            </span>
+
+            <h2 className="font-black text-lg sm:text-xl">
+              {paymentReturn.paymentStatus === "paid"
+                ? `Pedido #${paymentReturn.orderId} pago e confirmado!`
+                : paymentReturn.paymentStatus === "failed"
+                  ? `Não foi possível confirmar o pagamento do Pedido #${paymentReturn.orderId}`
+                  : `Pedido #${paymentReturn.orderId} aguardando confirmação do pagamento`}
+            </h2>
+
+            <p className="text-xs sm:text-sm mt-1 opacity-90">
+              {paymentReturn.paymentStatus === "paid"
+                ? `Recebemos seu pagamento na ${store.name}. Você acompanhará cada etapa do preparo pelo seu WhatsApp.`
+                : paymentReturn.paymentStatus === "failed"
+                  ? "Você pode tentar pagar novamente pelo botão abaixo ou fazer um novo pedido."
+                  : "Se você pagou via PIX, a confirmação costuma levar alguns segundos. Assim que confirmar, avisaremos no seu WhatsApp."}
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2 mt-3.5">
+              {paymentReturn.paymentStatus !== "paid" &&
+                paymentReturn.paymentUrl && (
+                  <a
+                    href={paymentReturn.paymentUrl}
+                    className="px-4 py-1.5 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] text-white text-xs font-bold rounded-xl transition shadow-xs"
+                  >
+                    {paymentReturn.paymentStatus === "failed"
+                      ? "Tentar pagar novamente"
+                      : "Abrir tela de pagamento"}
+                  </a>
+                )}
+
+              {paymentReturn.paymentStatus !== "paid" && (
+                <button
+                  type="button"
+                  disabled={checkingPayment}
+                  onClick={() => verifyOrderPayment(paymentReturn.orderId)}
+                  className="px-3.5 py-1.5 bg-white hover:bg-stone-100 disabled:opacity-50 text-zinc-900 text-xs font-bold rounded-xl border border-stone-300 transition cursor-pointer"
+                >
+                  {checkingPayment ? "Verificando..." : "Verificar pagamento"}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setPaymentReturn(null)}
+                className="px-3.5 py-1.5 bg-white/80 hover:bg-white text-zinc-800 text-xs font-bold rounded-xl border border-stone-300 transition cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Banner de Pedido Confirmado */}
       {orderSuccess && (
         <div className="max-w-3xl mx-auto px-4 sm:px-6 mt-5">
@@ -213,7 +384,8 @@ export default function StoreMenu({ store, categories, products }) {
                 <p className="text-xs sm:text-sm text-emerald-800 mt-1">
                   Obrigado, <strong>{orderSuccess.customer_name}</strong>.{" "}
                   <strong>{store.name}</strong> já recebeu os itens do seu
-                  pedido.
+                  pedido. Você receberá as atualizações de cada etapa no seu
+                  WhatsApp.
                 </p>
               </div>
             </div>
@@ -557,10 +729,48 @@ export default function StoreMenu({ store, categories, products }) {
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1.5">
+              <div className="space-y-2.5">
+                <label className="block text-xs font-bold text-zinc-700">
                   Forma de Pagamento
                 </label>
+
+                {hasOnlinePayment && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("online")}
+                    className={`w-full p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between gap-2 ${
+                      paymentMethod === "online"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/20"
+                        : "bg-white border-stone-300 text-zinc-800 hover:bg-stone-50"
+                    }`}
+                  >
+                    <div>
+                      <span className="block text-xs sm:text-sm font-extrabold">
+                        Pagar Online Agora (PIX ou Cartão)
+                      </span>
+                      <span className="block text-[11px] text-zinc-500 mt-0.5">
+                        Confirmação automática via Mercado Pago
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                        paymentMethod === "online"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-stone-100 text-zinc-600"
+                      }`}
+                    >
+                      Rápido
+                    </span>
+                  </button>
+                )}
+
+                {hasOnlinePayment && (
+                  <p className="text-[11px] font-semibold text-zinc-400 pt-0.5">
+                    Ou pagar na{" "}
+                    {deliveryType === "delivery" ? "entrega" : "retirada"}:
+                  </p>
+                )}
+
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { id: "pix", label: "PIX" },
@@ -602,8 +812,12 @@ export default function StoreMenu({ store, categories, products }) {
                 className="w-full py-3.5 bg-gradient-to-b from-[#CF0606] to-[#A80000] hover:from-[#B00000] hover:to-[#830000] disabled:bg-zinc-400 text-white text-sm sm:text-base font-bold rounded-xl transition cursor-pointer shadow-md shadow-[#BC0202]/20 mt-1"
               >
                 {submitting
-                  ? "Enviando pedido..."
-                  : `Confirmar Pedido • R$ ${formatMoney(finalTotal)}`}
+                  ? paymentMethod === "online"
+                    ? "Preparando pagamento..."
+                    : "Enviando pedido..."
+                  : paymentMethod === "online"
+                    ? `Ir para Pagamento • R$ ${formatMoney(finalTotal)}`
+                    : `Confirmar Pedido • R$ ${formatMoney(finalTotal)}`}
               </button>
             </form>
           </div>
