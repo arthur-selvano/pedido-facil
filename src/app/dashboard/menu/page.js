@@ -134,6 +134,7 @@ export default function MenuManagementPage() {
       const createdProduct = {
         ...data.product,
         available: data.product.available !== false,
+        has_orders: false,
         category_name: selectedCategory
           ? selectedCategory.name
           : "Sem categoria",
@@ -217,6 +218,11 @@ export default function MenuManagementPage() {
 
       const data = await response.json();
 
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
       if (!response.ok) {
         setEditError(data.error || "Erro ao salvar alterações.");
         setSavingEdit(false);
@@ -233,9 +239,10 @@ export default function MenuManagementPage() {
             ? {
                 ...item,
                 ...data.product,
-                category_name: selectedCategory
-                  ? selectedCategory.name
-                  : item.category_name,
+                category_name:
+                  data.product.category_name ??
+                  selectedCategory?.name ??
+                  item.category_name,
               }
             : item,
         ),
@@ -249,9 +256,34 @@ export default function MenuManagementPage() {
     }
   }
 
+  // Produto com pedidos não pode ser excluído: oferece pausar o item.
+  async function offerPauseInstead(product, message) {
+    const isAvailable = product.available !== false;
+
+    if (!isAvailable) {
+      alert(`${message}\n\nEste item já está pausado no cardápio.`);
+      return;
+    }
+
+    const shouldPause = window.confirm(
+      `${message}\n\nDeseja pausar "${product.name}" agora?`,
+    );
+    if (shouldPause) {
+      await handleToggleAvailability(product);
+    }
+  }
+
   async function handleDeleteProduct(product) {
+    if (product.has_orders) {
+      await offerPauseInstead(
+        product,
+        `"${product.name}" possui pedidos registrados e não pode ser excluído.`,
+      );
+      return;
+    }
+
     const confirmed = window.confirm(
-      `Tem certeza que deseja excluir "${product.name}"? Se ele já tiver pedidos registrados, prefira apenas pausar o item.`,
+      `Tem certeza que deseja excluir "${product.name}"? Essa ação não pode ser desfeita.`,
     );
     if (!confirmed) return;
 
@@ -263,11 +295,30 @@ export default function MenuManagementPage() {
 
       const data = await response.json();
 
-      if (!response.ok) {
-        alert(
-          data.error ||
-            "Não foi possível excluir. Se o item já está em pedidos antigos, use o botão Disponível para pausá-lo.",
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (response.status === 409 && data.code === "PRODUCT_HAS_ORDERS") {
+        setProducts((prev) =>
+          prev.map((item) =>
+            item.id === product.id ? { ...item, has_orders: true } : item,
+          ),
         );
+        setDeletingId(null);
+        await offerPauseInstead(product, data.error);
+        return;
+      }
+
+      if (response.status === 404) {
+        setProducts((prev) => prev.filter((item) => item.id !== product.id));
+        alert(data.error || "Produto não encontrado.");
+        return;
+      }
+
+      if (!response.ok) {
+        alert(data.error || "Não foi possível excluir o produto.");
         return;
       }
 
@@ -530,6 +581,14 @@ export default function MenuManagementPage() {
                                 Pausado / Esgotado
                               </span>
                             )}
+                            {prod.has_orders && (
+                              <span
+                                title="Este produto já aparece em pedidos e não pode ser excluído."
+                                className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium"
+                              >
+                                Possui pedidos
+                              </span>
+                            )}
                           </div>
 
                           {prod.description && (
@@ -573,9 +632,18 @@ export default function MenuManagementPage() {
 
                         <button
                           type="button"
-                          disabled={isDeleting}
+                          disabled={isDeleting || isToggling}
                           onClick={() => handleDeleteProduct(prod)}
-                          className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg border border-red-200 transition cursor-pointer disabled:opacity-50"
+                          title={
+                            prod.has_orders
+                              ? "Produto com pedidos registrados não pode ser excluído. Clique para pausá-lo."
+                              : "Excluir produto"
+                          }
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition cursor-pointer disabled:opacity-50 ${
+                            prod.has_orders
+                              ? "bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100"
+                              : "bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
+                          }`}
                         >
                           {isDeleting ? "..." : "Excluir"}
                         </button>

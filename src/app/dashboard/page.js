@@ -4,10 +4,17 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+function formatPrice(value) {
+  return Number(value || 0)
+    .toFixed(2)
+    .replace(".", ",");
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
   const [store, setStore] = useState(null);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [name, setName] = useState("");
@@ -18,27 +25,36 @@ export default function DashboardPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [togglingStore, setTogglingStore] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   useEffect(() => {
-    async function loadStore() {
+    async function loadDashboardData() {
       try {
-        const response = await fetch("/api/stores");
+        const [storeRes, ordersRes] = await Promise.all([
+          fetch("/api/stores"),
+          fetch("/api/orders"),
+        ]);
 
-        if (response.status === 401) {
+        if (storeRes.status === 401 || ordersRes.status === 401) {
           router.push("/login");
           return;
         }
 
-        const data = await response.json();
-        setStore(data.store);
+        const storeData = await storeRes.json();
+        setStore(storeData.store);
+
+        if (ordersRes.ok) {
+          const ordersData = await ordersRes.json();
+          setOrders(ordersData.orders || []);
+        }
       } catch (err) {
-        console.error("Erro ao carregar loja:", err);
+        console.error("Erro ao carregar painel:", err);
       } finally {
         setLoading(false);
       }
     }
 
-    loadStore();
+    loadDashboardData();
   }, [router]);
 
   async function handleCreateStore(e) {
@@ -96,6 +112,37 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleCopyLink() {
+    const publicUrl = `${window.location.origin}/${store.slug}`;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch (err) {
+      alert(`Copie o link: ${publicUrl}`);
+    }
+  }
+
+  const todayKey = new Date().toLocaleDateString("pt-BR");
+
+  const todayDeliveredOrders = orders.filter((order) => {
+    if (order.status !== "delivered" || !order.created_at) return false;
+    const orderDay = new Date(order.created_at).toLocaleDateString("pt-BR");
+    return orderDay === todayKey;
+  });
+
+  const todayRevenue = todayDeliveredOrders.reduce(
+    (acc, order) => acc + Number(order.total || 0),
+    0,
+  );
+
+  const todayCount = todayDeliveredOrders.length;
+  const averageTicket = todayCount > 0 ? todayRevenue / todayCount : 0;
+
+  const activeQueueCount = orders.filter((o) =>
+    ["pending", "preparing", "out_for_delivery"].includes(o.status),
+  ).length;
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -107,15 +154,15 @@ export default function DashboardPage() {
   if (!store) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-        <div className="w-full max-w-lg bg-white rounded-2xl shadow-md p-8">
-          <a href="#" className="flex justify-center items-center mb-4">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-md p-6 sm:p-8">
+          <div className="flex justify-center items-center mb-4">
             <img
               src="/logo.png"
               alt="Logo Pedido Fácil"
-              className="h-25 w-auto object-contain"
+              className="h-20 sm:h-24 w-auto object-contain"
             />
-          </a>
-          <h1 className="text-3xl font-black text-gray-800 text-center mb-2">
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-800 text-center mb-2">
             Configure sua Loja
           </h1>
           <p className="text-sm text-gray-500 text-center mb-6">
@@ -139,7 +186,7 @@ export default function DashboardPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ex: Burger do Arthur"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
               />
             </div>
 
@@ -155,10 +202,10 @@ export default function DashboardPage() {
                   setSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))
                 }
                 placeholder="ex: burger-do-arthur"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
               />
               <p className="text-xs text-gray-400 mt-1">
-                Seu cardápio ficará em: localhost:3000/{slug || "sua-loja"}
+                Seu cardápio ficará em: /{slug || "sua-loja"}
               </p>
             </div>
 
@@ -167,11 +214,11 @@ export default function DashboardPage() {
                 WhatsApp da Loja
               </label>
               <input
-                type="text"
+                type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="Ex: 34999999999"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
               />
             </div>
 
@@ -186,7 +233,7 @@ export default function DashboardPage() {
                 value={deliveryFee}
                 onChange={(e) => setDeliveryFee(e.target.value)}
                 placeholder="0.00"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#BC0202]"
               />
             </div>
 
@@ -205,25 +252,29 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-3 min-w-0">
             <img
               src="/logo.png"
               alt="Logo Pedido Fácil"
-              className="h-25 w-auto object-contain"
+              className="h-16 sm:h-20 w-auto object-contain shrink-0"
             />
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">{store.name}</h1>
-              <p className="text-sm text-gray-500">Painel Administrativo</p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold text-gray-800 truncate">
+                {store.name}
+              </h1>
+              <p className="text-xs sm:text-sm text-gray-500">
+                Painel Administrativo
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={handleToggleStore}
               disabled={togglingStore}
-              className={`px-4 py-2 text-sm font-bold rounded-xl border transition cursor-pointer disabled:opacity-50 ${
+              className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-xl border transition cursor-pointer disabled:opacity-50 ${
                 store.is_open
                   ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
                   : "bg-red-50 text-red-700 border-red-300 hover:bg-red-100"
@@ -239,78 +290,138 @@ export default function DashboardPage() {
             <Link
               href={`/${store.slug}`}
               target="_blank"
-              className="px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition"
+              className="px-3.5 sm:px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-bold rounded-xl transition"
             >
               Ver Cardápio Público
             </Link>
           </div>
-
-          <Link
-            href={`/${store.slug}`}
-            target="_blank"
-            className="px-4 py-2 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition"
-          >
-            Ver Cardápio Público
-          </Link>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
-        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">
-            Resumo da Loja
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <span className="text-gray-500 block">Link do Cardápio</span>
-              <strong className="text-gray-800">/{store.slug}</strong>
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <span className="text-gray-500 block">WhatsApp</span>
-              <strong className="text-gray-800">
-                {store.phone || "Não informado"}
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        {/* Desempenho Financeiro de Hoje */}
+        <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200">
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-800">
+              Desempenho de Hoje
+            </h2>
+            <span className="text-xs text-gray-400 font-medium">
+              {todayKey}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+              <span className="text-xs font-semibold text-emerald-800 block">
+                Faturamento Concluído
+              </span>
+              <strong className="text-xl sm:text-2xl font-black text-emerald-900 mt-1 block">
+                R$ {formatPrice(todayRevenue)}
               </strong>
             </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <span className="text-gray-500 block">Taxa de Entrega</span>
-              <strong className="text-gray-800">
-                R$ {Number(store.delivery_fee).toFixed(2).replace(".", ",")}
+
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+              <span className="text-xs font-semibold text-gray-500 block">
+                Pedidos Concluídos Hoje
+              </span>
+              <strong className="text-xl sm:text-2xl font-black text-gray-900 mt-1 block">
+                {todayCount}
+              </strong>
+            </div>
+
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+              <span className="text-xs font-semibold text-gray-500 block">
+                Ticket Médio
+              </span>
+              <strong className="text-xl sm:text-2xl font-black text-gray-900 mt-1 block">
+                R$ {formatPrice(averageTicket)}
               </strong>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200 flex items-center justify-between gap-4">
+        {/* Resumo da Loja + Copiar Link */}
+        <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200">
+          <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4">
+            Resumo da Loja
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 text-sm">
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="text-xs text-gray-500 block">
+                  Link do Cardápio
+                </span>
+                <strong className="text-gray-800 truncate block">
+                  /{store.slug}
+                </strong>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold rounded-lg border border-gray-300 transition cursor-pointer shrink-0"
+              >
+                {copiedLink ? "Copiado!" : "Copiar Link"}
+              </button>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+              <span className="text-xs text-gray-500 block">WhatsApp</span>
+              <strong className="text-gray-800">
+                {store.phone || "Não informado"}
+              </strong>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+              <span className="text-xs text-gray-500 block">
+                Taxa de Entrega
+              </span>
+              <strong className="text-gray-800">
+                R$ {formatPrice(store.delivery_fee)}
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Atalho Pedidos e Cozinha */}
+        <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">
-              Pedidos e Cozinha
-            </h2>
-            <p className="text-sm text-gray-500">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-800">
+                Pedidos e Cozinha
+              </h2>
+              {activeQueueCount > 0 && (
+                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                  {activeQueueCount} na fila
+                </span>
+              )}
+            </div>
+            <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
               Acompanhe os pedidos em tempo real e atualize o andamento da fila.
             </p>
           </div>
 
           <Link
             href="/dashboard/orders"
-            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition shrink-0"
+            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-bold rounded-xl transition text-center shrink-0"
           >
             Abrir Pedidos
           </Link>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200 flex items-center justify-between gap-4">
+        {/* Atalho Cardápio Digital */}
+        <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-800">
               Cardápio Digital
             </h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
               Crie categorias e adicione os itens disponíveis na sua loja.
             </p>
           </div>
 
           <Link
             href="/dashboard/menu"
-            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-sm font-bold rounded-xl transition shrink-0"
+            className="px-4 py-2.5 bg-[#BC0202] hover:bg-[#830000] text-white text-xs sm:text-sm font-bold rounded-xl transition text-center shrink-0"
           >
             Gerenciar Cardápio
           </Link>

@@ -30,12 +30,16 @@ export async function GET(request) {
         categories: {
           select: { name: true },
         },
+        _count: {
+          select: { order_items: true },
+        },
       },
     });
 
-    const products = rawProducts.map(({ categories, ...product }) => ({
+    const products = rawProducts.map(({ categories, _count, ...product }) => ({
       ...product,
       category_name: categories.name,
+      has_orders: _count.order_items > 0,
     }));
 
     return NextResponse.json({ products });
